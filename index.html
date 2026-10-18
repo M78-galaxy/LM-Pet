@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>橹穆桌宠</title>
+    <style>
+      html, body {
+        background: transparent;
+        margin: 0;
+        overflow: hidden;
+        height: 100%;
+      }
+      #stage {
+        position: relative;
+        height: 100%;
+        box-sizing: border-box;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        padding: 8px 12px 12px;
+      }
+      .pets {
+        -webkit-app-region: drag;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        gap: 8px;
+        padding: 72px 4px 0;
+        opacity: 1;
+        transition: opacity 180ms ease;
+      }
+      .char {
+        position: relative;
+      }
+      .body {
+        height: var(--pet-h, 140px);
+        background-repeat: no-repeat;
+        background-position: 0 0;
+        background-size: 200% 100%;
+      }
+      #bodyA {
+        width: calc(var(--pet-h, 140px) * 305 / 452);
+        background-image: url("assets/A-sit-talk.png");
+      }
+      #bodyB {
+        width: calc(var(--pet-h, 140px) * 335 / 449);
+        background-image: url("assets/B-sit-talk.png");
+      }
+      #bodyA.talking,
+      #bodyB.talking {
+        animation: mouth 0.5s infinite;
+      }
+      .char.extra img {
+        height: var(--pet-h, 140px);
+        width: auto;
+        user-select: none;
+        -webkit-user-drag: none;
+      }
+      .char.off {
+        display: none;
+      }
+      @keyframes mouth {
+        0%, 49.9% { background-position: 0 0; }
+        50%, 100% { background-position: 100% 0; }
+      }
+      .bubble {
+        position: absolute;
+        bottom: calc(100% + 6px);
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 6px 10px;
+        font: 12px/1.4 sans-serif;
+        color: #243a3e;
+        background: linear-gradient(145deg, #68d8e2 0%, #f6b0b8 100%);
+        border: 1px solid #e8a4ae;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        width: max-content;
+        max-width: 180px;
+        text-align: center;
+        white-space: normal;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s;
+      }
+      .bubble.show {
+        opacity: 1;
+      }
+      .pets.hidden {
+        display: none;
+      }
+      #clip {
+        display: none;
+        position: absolute;
+        left: 50%;
+        bottom: 12px;
+        margin: 0;
+        transform: translateX(-50%);
+        background-color: transparent;
+        filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.25));
+        -webkit-app-region: drag;
+        opacity: 0;
+        transition: opacity 180ms ease;
+      }
+      .clip-src {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        opacity: 0;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <div class="pets" id="pets">
+        <div class="char built-in">
+          <div class="bubble" id="bubbleA"></div>
+          <div class="body" id="bodyA"></div>
+        </div>
+        <div class="char built-in">
+          <div class="bubble" id="bubbleB"></div>
+          <div class="body" id="bodyB"></div>
+        </div>
+      </div>
+      <canvas id="clip"></canvas>
+    </div>
+    <script>
+      const SCRIPT = `老妈妈: 你看球吗？
+老爸爸: 不看
+老妈妈: 好..算了
+
+老妈妈: 你学舞几年了
+老爸爸: 二三年吧
+
+老妈妈: 评价一下我今天的ootd，好好评价哦！
+老爸爸: 看得出来是一套黑色极简风格，潮流中带着一丝复古
+老妈妈: And then
+
+老妈妈: 成都有什么特色美食
+老爸爸: 麻辣兔头`;
+
+      const pets = document.getElementById("pets");
+      const clip = document.getElementById("clip");
+      let strollId = 0;
+      const FADE_MS = 180;
+      // 牵手逛逛：按视频 currentTime 对齐窗口滑动（毫秒）
+      // AT 增大 = 更晚才滑；MS 增大 = 滑得更久。改完须重新开桌宠再试。
+      const STROLL_WALK_AT = 4650;
+      const STROLL_WALK_MS = 6700;
+      const bodyA = document.getElementById("bodyA");
+      const bodyB = document.getElementById("bodyB");
+      const bubbleA = document.getElementById("bubbleA");
+      const bubbleB = document.getElementById("bubbleB");
+      let timers = [];
+      let clipRaf = 0;
+      let clipVideo = null;
+
+      function resolveWho(name) {
+        const k = String(name || "").trim();
+        if (/^a$/i.test(k) || k === "老妈妈") return "A";
+        if (/^b$/i.test(k) || k === "老爸爸") return "B";
+        return null;
+      }
+
+      function parseDialogues(text) {
+        const out = [];
+        for (const block of text.split(/\n\s*\n/)) {
+          const lines = [];
+          for (const raw of block.split("\n")) {
+            const line = raw.trim();
+            if (!line || line.startsWith("#") || line.startsWith("//") || line === "---") continue;
+            const m = line.match(/^(.+?)\s*[:：]\s*(.+)$/);
+            if (!m) continue;
+            const who = resolveWho(m[1]);
+            if (!who) continue;
+            lines.push({ who, text: m[2].trim() });
+          }
+          if (lines.length) out.push(lines);
+        }
+        return out;
+      }
+
+      const dialogues = parseDialogues(SCRIPT);
+      let autoOn = true;
+      let intervalMin = 8;
+      let intervalMax = 20;
+      let autoTimer = null;
+      let busy = false;
+
+      function setAutoConfig(on, min, max) {
+        autoOn = !!on;
+        intervalMin = Math.max(3, Number(min) || 8);
+        intervalMax = Math.max(intervalMin, Number(max) || 20);
+        if (autoOn) scheduleAuto();
+        else if (autoTimer) {
+          clearTimeout(autoTimer);
+          autoTimer = null;
+        }
+      }
+
+      function scheduleAuto() {
+        if (autoTimer) clearTimeout(autoTimer);
+        autoTimer = null;
+        if (!autoOn || !dialogues.length) return;
+        const lo = intervalMin * 1000;
+        const hi = intervalMax * 1000;
+        const ms = lo + Math.random() * Math.max(0, hi - lo);
+        autoTimer = setTimeout(() => {
+          if (!autoOn || busy) {
+            scheduleAuto();
+            return;
+          }
+          talk(Math.floor(Math.random() * dialogues.length));
+        }, ms);
+      }
+
+      function reset() {
+        for (const t of timers) clearTimeout(t);
+        timers = [];
+        bodyA.classList.remove("talking");
+        bodyB.classList.remove("talking");
+        bubbleA.classList.remove("show");
+        bubbleB.classList.remove("show");
+        bubbleA.textContent = "";
+        bubbleB.textContent = "";
+      }
+
+      function say(who, text) {
+        bodyA.classList.remove("talking");
+        bodyB.classList.remove("talking");
+        bubbleA.classList.remove("show");
+        bubbleB.classList.remove("show");
+        const body = who === "A" ? bodyA : bodyB;
+        const bubble = who === "A" ? bubbleA : bubbleB;
+        body.classList.add("talking");
+        bubble.textContent = text;
+        bubble.classList.add("show");
+      }
+
+      function dialogueTitles() {
+        return dialogues.map((d) => d[0].text.slice(0, 14));
+      }
+
+      function flipClip(left) {
+        clip.style.transform = left ? "translateX(-50%) scaleX(-1)" : "translateX(-50%)";
+      }
+
+      function fadeTo(el, show) {
+        return new Promise((resolve) => {
+          el.style.transition = `opacity ${FADE_MS}ms ease`;
+          el.style.opacity = show ? "1" : "0";
+          setTimeout(resolve, FADE_MS);
+        });
+      }
+
+      function stopClip(restore) {
+        strollId += 1;
+        if (window.pet) window.pet.cancelSlide();
+        if (clipRaf) {
+          cancelAnimationFrame(clipRaf);
+          clipRaf = 0;
+        }
+        if (clipVideo) {
+          clipVideo.pause();
+          clipVideo.remove();
+          clipVideo = null;
+        }
+        clip.style.transform = "translateX(-50%)";
+        clip.style.display = "none";
+        clip.style.width = "";
+        clip.style.height = "";
+        clip.style.opacity = "0";
+        pets.style.opacity = "1";
+        pets.classList.remove("hidden");
+        if (restore !== false && window.pet && window.pet.fitIdle) {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              if (window.pet && window.pet.fitIdle) window.pet.fitIdle();
+            });
+          });
+        }
+      }
+
+      function clipSize() {
+        const petH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--pet-h")) || 140;
+        const h = Math.round(petH * 1.42);
+        const w = Math.max(1, Math.round((h * 1112) / 834));
+        return { w, h };
+      }
+
+      function fitClip(w, h) {
+        document.documentElement.style.setProperty("--clip-w", `${w}px`);
+        document.documentElement.style.setProperty("--clip-h", `${h}px`);
+        if (window.pet && window.pet.fitClip) window.pet.fitClip(w, h);
+      }
+
+      function keyWhite(ctx, w, h) {
+        const img = ctx.getImageData(0, 0, w, h);
+        const d = img.data;
+        for (let i = 0; i < d.length; i += 4) {
+          const r = d[i], g = d[i + 1], b = d[i + 2];
+          const dist = Math.sqrt((255 - r) ** 2 + (255 - g) ** 2 + (255 - b) ** 2);
+          if (dist < 30) d[i + 3] = 0;
+          else if (dist < 54) d[i + 3] = Math.round((d[i + 3] * (dist - 30)) / 24);
+        }
+        ctx.putImageData(img, 0, 0);
+      }
+
+      async function playStroll() {
+        if (autoTimer) {
+          clearTimeout(autoTimer);
+          autoTimer = null;
+        }
+        stopClip(false);
+        reset();
+        busy = true;
+        const id = strollId;
+        const { w, h } = clipSize();
+        fitClip(w, h);
+
+        const v = document.createElement("video");
+        v.className = "clip-src";
+        v.src = "assets/pair-stroll.mp4";
+        v.muted = true;
+        v.autoplay = true;
+        v.playsInline = true;
+        v.setAttribute("playsinline", "true");
+        v.setAttribute("muted", "true");
+        document.body.appendChild(v);
+        clipVideo = v;
+
+        const ready = new Promise((resolve) => {
+          const done = (ok) => resolve(ok);
+          v.addEventListener("canplay", () => done(true), { once: true });
+          v.addEventListener("error", () => done(false), { once: true });
+          v.load();
+          setTimeout(() => done(v.readyState >= 2), 2500);
+        });
+
+        const ok = await ready;
+        if (id !== strollId || clipVideo !== v) return;
+        if (!ok) {
+          stopClip();
+          busy = false;
+          scheduleAuto();
+          return;
+        }
+
+        clip.width = w;
+        clip.height = h;
+        clip.style.width = `${w}px`;
+        clip.style.height = `${h}px`;
+        clip.style.display = "block";
+        clip.style.opacity = "0";
+        const ctx = clip.getContext("2d", { willReadFrequently: true });
+        let walkArmed = true;
+        const paint = () => {
+          if (clipVideo !== v || v.ended) return;
+          ctx.clearRect(0, 0, w, h);
+          ctx.drawImage(v, 0, 0, w, h);
+          try {
+            keyWhite(ctx, w, h);
+          } catch (_) {}
+          if (walkArmed && v.currentTime * 1000 >= STROLL_WALK_AT) {
+            walkArmed = false;
+            if (window.pet) window.pet.walkSlide(STROLL_WALK_MS);
+          }
+          if (!v.ended) clipRaf = requestAnimationFrame(paint);
+        };
+        const afterVideo = async () => {
+          if (id !== strollId || clipVideo !== v) return;
+          if (clipRaf) {
+            cancelAnimationFrame(clipRaf);
+            clipRaf = 0;
+          }
+          try {
+            v.pause();
+          } catch (_) {}
+          pets.style.transition = "none";
+          pets.style.opacity = "0";
+          pets.classList.remove("hidden");
+          void pets.offsetHeight;
+          await Promise.all([fadeTo(pets, true), fadeTo(clip, false)]);
+          if (id !== strollId) return;
+          stopClip();
+          busy = false;
+          scheduleAuto();
+        };
+        v.addEventListener("ended", afterVideo, { once: true });
+        v.addEventListener("error", afterVideo, { once: true });
+        clipRaf = requestAnimationFrame(paint);
+        v.play().catch(afterVideo);
+        await Promise.all([fadeTo(clip, true), fadeTo(pets, false)]);
+        if (id !== strollId) return;
+      }
+
+      function stopAll() {
+        stopClip();
+        reset();
+        busy = false;
+        scheduleAuto();
+      }
+
+      function talk(index) {
+        if (!dialogues.length) return;
+        const lines = dialogues[index];
+        if (!lines) return;
+        if (autoTimer) {
+          clearTimeout(autoTimer);
+          autoTimer = null;
+        }
+        stopClip();
+        reset();
+        busy = true;
+        lines.forEach((line, i) => {
+          timers.push(setTimeout(() => say(line.who, line.text), i * 2200));
+        });
+        timers.push(setTimeout(() => {
+          reset();
+          busy = false;
+          scheduleAuto();
+        }, lines.length * 2200));
+      }
+
+      scheduleAuto();
+
+      function applyStage(stage) {
+        const extras = (stage && stage.extras) || [];
+        const showAll = !!(stage && stage.showAll);
+        const activeId = (stage && stage.activeId) || "lumu";
+        const petSize = (stage && stage.petSize) || 140;
+        document.documentElement.style.setProperty("--pet-h", `${petSize}px`);
+        pets.querySelectorAll(".char.built-in").forEach((el) => {
+          el.classList.toggle("off", !showAll && activeId !== "lumu");
+        });
+        pets.querySelectorAll(".char.extra").forEach((el) => el.remove());
+        for (const extra of extras) {
+          const on = showAll || extra.id === activeId;
+          if (!on) continue;
+          const wrap = document.createElement("div");
+          wrap.className = "char extra";
+          wrap.dataset.id = extra.id;
+          const img = document.createElement("img");
+          img.src = extra.image;
+          img.alt = extra.name || "";
+          wrap.appendChild(img);
+          pets.appendChild(wrap);
+        }
+      }
+
+      if (window.pet && window.pet.getStage) {
+        window.pet.getStage().then(applyStage);
+        window.pet.onStage(applyStage);
+      }
+    </script>
+  </body>
+</html>

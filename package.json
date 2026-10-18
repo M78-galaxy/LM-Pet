@@ -1,0 +1,13 @@
+{
+  "name": "lm-pet",
+  "version": "0.1.0",
+  "private": true,
+  "description": "橹穆桌面宠物（Electron）",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^44.7.0"
+  }
+}

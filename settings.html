@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>橹穆桌宠 · 设置</title>
+    <link rel="icon" href="assets/logo.png" />
+    <style>
+      html, body {
+        margin: 0;
+        background: #f4f4f5;
+        color: #222;
+        font: 14px/1.5 -apple-system, BlinkMacSystemFont, sans-serif;
+      }
+      main {
+        padding: 20px 24px 28px;
+        max-width: 520px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0 0 18px;
+      }
+      .brand img {
+        width: 36px;
+        height: 36px;
+      }
+      .brand span {
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 18px;
+      }
+      .hint {
+        margin: 0 0 12px;
+        color: #666;
+        font-size: 13px;
+      }
+      label.test,
+      .size {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 16px;
+        font-size: 13px;
+        color: #444;
+      }
+      .size input[type="range"] {
+        flex: 1;
+      }
+      .size #sizeVal {
+        min-width: 3em;
+        text-align: right;
+        color: #666;
+      }
+      ul {
+        list-style: none;
+        margin: 0 0 16px;
+        padding: 0;
+      }
+      li {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        background: #fff;
+        border: 1px solid #e5e5e5;
+        border-radius: 10px;
+        padding: 10px 12px;
+        margin-bottom: 8px;
+      }
+      li.on {
+        border-color: #222;
+      }
+      li img {
+        width: 48px;
+        height: 48px;
+        object-fit: contain;
+        background: #fafafa;
+        border-radius: 6px;
+      }
+      li img.pair {
+        width: 78px;
+        height: 48px;
+      }
+      li .name {
+        flex: 1;
+      }
+      li .tag {
+        font-size: 11px;
+        color: #888;
+      }
+      button {
+        font: inherit;
+        cursor: pointer;
+      }
+      .on-stage,
+      .remove {
+        border: 1px solid #ddd;
+        background: #fff;
+        border-radius: 6px;
+        padding: 4px 10px;
+      }
+      .on-stage {
+        color: #222;
+      }
+      .remove {
+        color: #a33;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+      }
+      input[type="text"] {
+        flex: 1;
+        font: inherit;
+        padding: 8px 10px;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+      }
+      #add {
+        border: 0;
+        background: #222;
+        color: #fff;
+        border-radius: 8px;
+        padding: 8px 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand">
+        <img src="assets/logo.png" alt="" />
+        <span>橹穆桌宠</span>
+      </div>
+      <h1>角色</h1>
+      <p class="hint">日常只上台一组。要并排对比，勾选下面的测试开关。</p>
+      <label class="test">
+        <input id="showAll" type="checkbox" />
+        测试：全部同时显示
+      </label>
+      <label class="size">
+        大小
+        <input id="petSize" type="range" min="80" max="240" step="10" />
+        <span id="sizeVal">140</span>
+      </label>
+      <ul id="list"></ul>
+      <div class="row">
+        <input id="name" type="text" placeholder="新角色名字（可空）" />
+        <button id="add" type="button">选择图片并上台</button>
+      </div>
+    </main>
+    <script>
+      const listEl = document.getElementById("list");
+      const nameEl = document.getElementById("name");
+      const showAllEl = document.getElementById("showAll");
+      const sizeEl = document.getElementById("petSize");
+      const sizeVal = document.getElementById("sizeVal");
+
+      function render(stage) {
+        const extras = (stage && stage.extras) || [];
+        const showAll = !!(stage && stage.showAll);
+        const activeId = (stage && stage.activeId) || "lumu";
+        const petSize = (stage && stage.petSize) || 140;
+        showAllEl.checked = showAll;
+        if (document.activeElement !== sizeEl) sizeEl.value = String(petSize);
+        sizeVal.textContent = String(petSize);
+        const sig = `${activeId}|${showAll}|${extras.map((e) => e.id).join(",")}`;
+        if (listEl.dataset.sig === sig) return;
+        listEl.dataset.sig = sig;
+        listEl.innerHTML = "";
+
+        const rows = [
+          {
+            id: "lumu",
+            name: "橹穆",
+            tag: "内置",
+            image: "assets/lumu-thumb.png",
+            builtin: true,
+            pair: true,
+          },
+          ...extras.map((extra) => ({ ...extra, builtin: false })),
+        ];
+
+        for (const item of rows) {
+          const li = document.createElement("li");
+          if (!showAll && item.id === activeId) li.classList.add("on");
+          const img = document.createElement("img");
+          img.src = item.image;
+          img.alt = item.name;
+          if (item.pair) img.classList.add("pair");
+          const name = document.createElement("div");
+          name.className = "name";
+          name.textContent = item.name;
+          if (item.tag) {
+            const tag = document.createElement("div");
+            tag.className = "tag";
+            tag.textContent = item.tag;
+            name.appendChild(tag);
+          }
+          li.append(img, name);
+          if (showAll || item.id !== activeId) {
+            const go = document.createElement("button");
+            go.className = "on-stage";
+            go.type = "button";
+            go.textContent = "上台";
+            go.addEventListener("click", () => window.pet.setActive(item.id));
+            li.append(go);
+          }
+          if (!item.builtin) {
+            const btn = document.createElement("button");
+            btn.className = "remove";
+            btn.type = "button";
+            btn.textContent = "删除";
+            btn.addEventListener("click", () => window.pet.removeExtra(item.id));
+            li.append(btn);
+          }
+          listEl.append(li);
+        }
+      }
+
+      showAllEl.addEventListener("change", () => {
+        window.pet.setShowAll(showAllEl.checked);
+      });
+
+      sizeEl.addEventListener("input", () => {
+        sizeVal.textContent = sizeEl.value;
+        window.pet.setPetSize(Number(sizeEl.value));
+      });
+
+      document.getElementById("add").addEventListener("click", async () => {
+        const result = await window.pet.addExtra(nameEl.value.trim());
+        if (result && result.error) {
+          window.alert(result.error);
+          return;
+        }
+        if (result && result.ok) nameEl.value = "";
+      });
+
+      window.pet.onStage(render);
+      window.pet.getStage().then(render);
+    </script>
+  </body>
+</html>
