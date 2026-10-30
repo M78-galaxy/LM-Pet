@@ -1,13 +1,63 @@
 {
   "name": "lm-pet",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
-  "description": "橹穆桌面宠物（Electron）",
+  "description": "LM-Pet",
   "main": "main.cjs",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "dist": "electron-builder --mac dmg --universal",
+    "dist:win": "electron-builder --win nsis"
   },
   "devDependencies": {
-    "electron": "^44.7.0"
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "app.lm-pet.desktop",
+    "productName": "LM-Pet",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "index.html",
+      "settings.html",
+      "package.json",
+      "assets/logo.png",
+      "assets/lumu-thumb.png",
+      "assets/A-sit-talk.png",
+      "assets/B-sit-talk.png",
+      "assets/An_pet/idle-2025sport.webp",
+      "assets/An_pet/idle-handhold.webp",
+      "assets/An_pet/idle-zhenai.webp",
+      "settings.json"
+    ],
+    "extraResources": [
+      {
+        "from": "bin/lm-pet-dragwatch",
+        "to": "bin/lm-pet-dragwatch"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.entertainment",
+      "target": [
+        "dmg"
+      ],
+      "icon": "assets/logo.png",
+      "identity": null,
+      "gatekeeperAssess": false,
+      "x64ArchFiles": "Contents/Resources/bin/lm-pet-dragwatch"
+    },
+    "dmg": {
+      "title": "LM-Pet"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "assets/logo.png"
+    }
   }
 }

@@ -2,14 +2,21 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <title>橹穆桌宠 · 设置</title>
+    <title>LM-Pet · 设置</title>
     <link rel="icon" href="assets/logo.png" />
     <style>
       html, body {
         margin: 0;
-        background: #f4f4f5;
-        color: #222;
+        color: #24343c;
         font: 14px/1.5 -apple-system, BlinkMacSystemFont, sans-serif;
+        background:
+          radial-gradient(720px 360px at 0% -10%, rgba(104, 216, 226, 0.55), transparent 62%),
+          radial-gradient(640px 420px at 100% 110%, rgba(246, 160, 184, 0.62), transparent 58%),
+          linear-gradient(165deg, #e5f7fb 0%, #f6eef6 46%, #fde7ef 100%);
+      }
+      body {
+        overflow: auto;
+        min-height: 100%;
       }
       main {
         padding: 20px 24px 28px;
@@ -27,16 +34,21 @@
       }
       .brand span {
         font-size: 15px;
-        font-weight: 600;
+        font-weight: 650;
         letter-spacing: 0.02em;
+        background: linear-gradient(120deg, #2f8f9c, #d46b8c);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
       }
       h1 {
         margin: 0 0 8px;
         font-size: 18px;
+        color: #234048;
       }
       .hint {
         margin: 0 0 12px;
-        color: #666;
+        color: #5d737c;
         font-size: 13px;
       }
       label.test,
@@ -46,15 +58,32 @@
         gap: 8px;
         margin-bottom: 16px;
         font-size: 13px;
-        color: #444;
+        color: #3d555c;
+      }
+      input[type="checkbox"] {
+        accent-color: #e07a9a;
       }
       .size input[type="range"] {
         flex: 1;
+        -webkit-appearance: none;
+        appearance: none;
+        height: 4px;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #68d8e2, #f6b0b8);
+      }
+      .size input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #fff;
+        border: 2px solid #f09ab4;
+        box-shadow: 0 1px 4px rgba(180, 90, 120, 0.25);
       }
       .size #sizeVal {
         min-width: 3em;
         text-align: right;
-        color: #666;
+        color: #6a4d5c;
       }
       ul {
         list-style: none;
@@ -65,21 +94,25 @@
         display: flex;
         align-items: center;
         gap: 12px;
-        background: #fff;
-        border: 1px solid #e5e5e5;
-        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.78);
+        border: 1px solid rgba(255, 255, 255, 0.95);
+        border-radius: 12px;
         padding: 10px 12px;
         margin-bottom: 8px;
+        box-shadow: 0 8px 22px rgba(150, 110, 140, 0.08);
       }
       li.on {
-        border-color: #222;
+        border: 1.5px solid transparent;
+        background:
+          linear-gradient(rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.92)) padding-box,
+          linear-gradient(120deg, #68d8e2, #f6b0b8) border-box;
       }
       li img {
         width: 48px;
         height: 48px;
         object-fit: contain;
-        background: #fafafa;
-        border-radius: 6px;
+        background: linear-gradient(145deg, rgba(104, 216, 226, 0.18), rgba(246, 176, 184, 0.28));
+        border-radius: 8px;
       }
       li img.pair {
         width: 78px;
@@ -90,7 +123,7 @@
       }
       li .tag {
         font-size: 11px;
-        color: #888;
+        color: #8a6d7c;
       }
       button {
         font: inherit;
@@ -98,34 +131,107 @@
       }
       .on-stage,
       .remove {
-        border: 1px solid #ddd;
-        background: #fff;
-        border-radius: 6px;
+        border: 1px solid rgba(232, 164, 184, 0.7);
+        background: rgba(255, 255, 255, 0.9);
+        border-radius: 8px;
         padding: 4px 10px;
       }
       .on-stage {
-        color: #222;
+        color: #2f6f7c;
       }
       .remove {
-        color: #a33;
+        color: #c45b78;
       }
       .row {
         display: flex;
         gap: 8px;
       }
+      input[type="text"],
+      textarea,
+      select {
+        background: rgba(255, 255, 255, 0.86);
+        border: 1px solid #efc9d6;
+        border-radius: 8px;
+        color: #24343c;
+      }
+      input[type="text"]:focus,
+      textarea:focus,
+      select:focus {
+        outline: 2px solid rgba(104, 216, 226, 0.45);
+        border-color: #8fd4e2;
+      }
       input[type="text"] {
         flex: 1;
         font: inherit;
         padding: 8px 10px;
-        border: 1px solid #ccc;
-        border-radius: 8px;
       }
-      #add {
+      #add,
+      #saveTalk,
+      #addAction {
         border: 0;
-        background: #222;
+        background: linear-gradient(120deg, #5ec8d8 0%, #f09ab4 100%);
         color: #fff;
         border-radius: 8px;
         padding: 8px 14px;
+        box-shadow: 0 6px 14px rgba(224, 122, 154, 0.28);
+      }
+      textarea, select {
+        font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      select {
+        font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+        padding: 4px 8px;
+      }
+      textarea {
+        width: 100%;
+        box-sizing: border-box;
+        min-height: 160px;
+        padding: 8px 10px;
+        resize: vertical;
+      }
+      .editor {
+        margin-top: 18px;
+        padding-top: 8px;
+      }
+      .edit-who {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      .names {
+        display: grid;
+        grid-template-columns: 1.2fr 1fr 1fr;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      .names label {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 12px;
+        color: #5d737c;
+      }
+      .names input {
+        font: 14px/1.4 -apple-system, BlinkMacSystemFont, sans-serif;
+        padding: 8px 10px;
+        border: 1px solid #efc9d6;
+        border-radius: 8px;
+      }
+      body.locked #addRow,
+      body.locked .editor,
+      body.locked .test,
+      body.locked .remove {
+        display: none;
+      }
+      .act-walk {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        margin: 0;
+        font-size: 12px;
+        color: #5d737c;
+        white-space: nowrap;
       }
     </style>
   </head>
@@ -133,10 +239,11 @@
     <main>
       <div class="brand">
         <img src="assets/logo.png" alt="" />
-        <span>橹穆桌宠</span>
+        <span>LM-Pet</span>
       </div>
       <h1>角色</h1>
-      <p class="hint">日常只上台一组。要并排对比，勾选下面的测试开关。</p>
+      <p class="hint" id="fedLine">喂食 0 份。把文件拖到桌宠身上，就会进废纸篓。</p>
+      <p class="hint" id="intro">日常只上台一组。要并排对比，勾选下面的测试开关。</p>
       <label class="test">
         <input id="showAll" type="checkbox" />
         测试：全部同时显示
@@ -147,19 +254,147 @@
         <span id="sizeVal">140</span>
       </label>
       <ul id="list"></ul>
-      <div class="row">
+      <div class="row" id="addRow">
         <input id="name" type="text" placeholder="新角色名字（可空）" />
         <button id="add" type="button">选择图片并上台</button>
       </div>
+      <section class="editor">
+        <h1>对话和动作</h1>
+        <p class="hint">一段对话之间空一行。每行写成「称呼: 台词」。称呼用下面的左侧、右侧名字。气泡里只显示台词，并且左右分开。改称呼后点保存，对话里的旧称呼会一起换掉。</p>
+        <label class="edit-who">
+          正在编辑
+          <select id="editId"></select>
+        </label>
+        <div class="names">
+          <label>角色名称<input id="castName" type="text" /></label>
+          <label>左侧<input id="leftName" type="text" placeholder="左侧称呼" /></label>
+          <label>右侧<input id="rightName" type="text" placeholder="右侧称呼" /></label>
+        </div>
+        <textarea id="dialogue" spellcheck="false" placeholder="甲: 你好&#10;乙: 嗯"></textarea>
+        <div class="row" style="margin: 8px 0 16px">
+          <button id="saveTalk" type="button">保存</button>
+        </div>
+        <ul id="actions"></ul>
+        <div class="row">
+          <input id="actionName" type="text" placeholder="动作名字（可空）" />
+          <button id="addAction" type="button">选择视频并添加</button>
+        </div>
+      </section>
     </main>
     <script>
       const listEl = document.getElementById("list");
       const nameEl = document.getElementById("name");
+      const editIdEl = document.getElementById("editId");
+      const castNameEl = document.getElementById("castName");
+      const leftNameEl = document.getElementById("leftName");
+      const rightNameEl = document.getElementById("rightName");
+      const dialogueEl = document.getElementById("dialogue");
+      const actionsEl = document.getElementById("actions");
+      const actionNameEl = document.getElementById("actionName");
+      let lastStage = null;
+      let loadedSpeakers = { left: "", right: "" };
+
+      function lumuName(stage) {
+        return (stage && stage.lumu && stage.lumu.name) || "橹穆";
+      }
+
+      function setIfIdle(el, value) {
+        if (document.activeElement !== el && el.value !== value) el.value = value;
+      }
+
+      function retitle(text, oldLeft, newLeft, oldRight, newRight) {
+        return String(text || "").split("\n").map((line) => {
+          const m = line.match(/^(\s*)(.+?)(\s*[:：]\s*)([\s\S]*)$/);
+          if (!m) return line;
+          const who = m[2].trim();
+          let next = who;
+          if (oldLeft && who === oldLeft) next = newLeft;
+          else if (oldRight && who === oldRight) next = newRight;
+          if (next === who) return line;
+          return `${m[1]}${next}${m[3]}${m[4]}`;
+        }).join("\n");
+      }
       const showAllEl = document.getElementById("showAll");
       const sizeEl = document.getElementById("petSize");
       const sizeVal = document.getElementById("sizeVal");
 
+      function castById(stage, id) {
+        if (id === "lumu") return (stage && stage.lumu) || { dialogue: "", actions: [] };
+        const extra = ((stage && stage.extras) || []).find((item) => item.id === id);
+        return extra || { dialogue: "", actions: [] };
+      }
+
+      function fillEditor(stage) {
+        const extras = (stage && stage.extras) || [];
+        const rows = [{ id: "lumu", name: lumuName(stage) }, ...extras];
+        const optionSig = rows.map((row) => `${row.id}:${row.name}`).join("|");
+        if (editIdEl.dataset.sig !== optionSig) {
+          const prev = editIdEl.value;
+          editIdEl.innerHTML = "";
+          for (const row of rows) {
+            const opt = document.createElement("option");
+            opt.value = row.id;
+            opt.textContent = row.name || row.id;
+            editIdEl.append(opt);
+          }
+          editIdEl.dataset.sig = optionSig;
+          editIdEl.value = rows.some((row) => row.id === prev) ? prev : (stage.activeId || "lumu");
+        }
+        const cast = castById(stage, editIdEl.value || "lumu");
+        setIfIdle(castNameEl, cast.name || (editIdEl.value === "lumu" ? "橹穆" : ""));
+        setIfIdle(leftNameEl, cast.leftName || "");
+        setIfIdle(rightNameEl, cast.rightName || "");
+        loadedSpeakers = { left: cast.leftName || "", right: cast.rightName || "" };
+        const text = cast.dialogue || "";
+        if (document.activeElement !== dialogueEl && dialogueEl.value !== text) {
+          dialogueEl.value = text;
+        }
+        actionsEl.innerHTML = "";
+        const list = cast.actions || [];
+        if (!list.length) {
+          const empty = document.createElement("li");
+          empty.textContent = "还没有动作";
+          actionsEl.append(empty);
+        }
+        for (const act of list) {
+          const li = document.createElement("li");
+          const name = document.createElement("div");
+          name.className = "name";
+          name.textContent = act.name || "动作";
+          const tag = document.createElement("div");
+          tag.className = "tag";
+          tag.textContent = String(act.src || "").split("/").pop();
+          name.append(tag);
+          const walk = document.createElement("label");
+          walk.className = "act-walk";
+          walk.title = "播放时窗口跟着移动";
+          const box = document.createElement("input");
+          box.type = "checkbox";
+          box.checked = !!act.walk;
+          box.addEventListener("change", () => {
+            window.pet.setActionWalk(editIdEl.value, act.id, box.checked);
+          });
+          walk.append(box, document.createTextNode("跟着走"));
+          const del = document.createElement("button");
+          del.className = "remove";
+          del.type = "button";
+          del.textContent = "删除";
+          del.addEventListener("click", () => window.pet.removeAction(editIdEl.value, act.id));
+          li.append(name, walk, del);
+          actionsEl.append(li);
+        }
+      }
+
       function render(stage) {
+        const editable = !!(stage && stage.editable);
+        document.body.classList.toggle("locked", !editable);
+        const intro = document.getElementById("intro");
+        if (intro) {
+          intro.textContent = editable
+            ? "日常只上台一组。要并排对比，勾选下面的测试开关。"
+            : "点「上台」换一组。角色、图片和对话不能在这里改。";
+        }
+        lastStage = stage;
         const extras = (stage && stage.extras) || [];
         const showAll = !!(stage && stage.showAll);
         const activeId = (stage && stage.activeId) || "lumu";
@@ -167,7 +402,11 @@
         showAllEl.checked = showAll;
         if (document.activeElement !== sizeEl) sizeEl.value = String(petSize);
         sizeVal.textContent = String(petSize);
-        const sig = `${activeId}|${showAll}|${extras.map((e) => e.id).join(",")}`;
+        const fed = (stage && stage.fed) || { count: 0 };
+        const fedLine = document.getElementById("fedLine");
+        if (fedLine) fedLine.textContent = `喂食 ${fed.count} 份。把文件拖到桌宠身上，就会进废纸篓。`;
+        fillEditor(stage);
+        const sig = `${activeId}|${showAll}|${lumuName(stage)}|${extras.map((e) => `${e.id}:${e.name}:${e.leftName}:${e.rightName}`).join(",")}`;
         if (listEl.dataset.sig === sig) return;
         listEl.dataset.sig = sig;
         listEl.innerHTML = "";
@@ -175,7 +414,7 @@
         const rows = [
           {
             id: "lumu",
-            name: "橹穆",
+            name: lumuName(stage),
             tag: "内置",
             image: "assets/lumu-thumb.png",
             builtin: true,
@@ -190,7 +429,7 @@
           const img = document.createElement("img");
           img.src = item.image;
           img.alt = item.name;
-          if (item.pair) img.classList.add("pair");
+          if (item.pair || !item.builtin) img.classList.add("pair");
           const name = document.createElement("div");
           name.className = "name";
           name.textContent = item.name;
@@ -228,6 +467,49 @@
       sizeEl.addEventListener("input", () => {
         sizeVal.textContent = sizeEl.value;
         window.pet.setPetSize(Number(sizeEl.value));
+      });
+
+      editIdEl.addEventListener("change", () => {
+        if (!lastStage) return;
+        const cast = castById(lastStage, editIdEl.value);
+        castNameEl.value = (cast && cast.name) || (editIdEl.value === "lumu" ? "橹穆" : "");
+        leftNameEl.value = (cast && cast.leftName) || "";
+        rightNameEl.value = (cast && cast.rightName) || "";
+        dialogueEl.value = (cast && cast.dialogue) || "";
+        loadedSpeakers = {
+          left: (cast && cast.leftName) || "",
+          right: (cast && cast.rightName) || "",
+        };
+        fillEditor(lastStage);
+      });
+
+      document.getElementById("saveTalk").addEventListener("click", () => {
+        const leftName = leftNameEl.value.trim();
+        const rightName = rightNameEl.value.trim();
+        const dialogue = retitle(
+          dialogueEl.value,
+          loadedSpeakers.left,
+          leftName,
+          loadedSpeakers.right,
+          rightName
+        );
+        dialogueEl.value = dialogue;
+        window.pet.setDialogue({
+          id: editIdEl.value,
+          name: castNameEl.value.trim(),
+          leftName,
+          rightName,
+          dialogue,
+        });
+      });
+
+      document.getElementById("addAction").addEventListener("click", async () => {
+        const result = await window.pet.addAction(editIdEl.value, actionNameEl.value.trim());
+        if (result && result.error) {
+          window.alert(result.error);
+          return;
+        }
+        if (result && result.ok) actionNameEl.value = "";
       });
 
       document.getElementById("add").addEventListener("click", async () => {

@@ -2,7 +2,7 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <title>橹穆桌宠</title>
+    <title>LM-Pet</title>
     <style>
       html, body {
         background: transparent;
@@ -20,17 +20,57 @@
         padding: 8px 12px 12px;
       }
       .pets {
-        -webkit-app-region: drag;
         display: flex;
         align-items: flex-end;
         justify-content: center;
         gap: 8px;
-        padding: 72px 4px 0;
+        padding: 108px 4px 0;
         opacity: 1;
         transition: opacity 180ms ease;
       }
+      .pets.dragging { cursor: grabbing; }
+      .pets.hungry .char:not(.off) {
+        transform: translateY(6px) scale(1.07, 0.93);
+        transition: transform 0.16s ease;
+      }
+      .pets.munch .char:not(.off) {
+        transform-origin: center bottom;
+        animation: chomp 0.78s ease;
+      }
+      @keyframes chomp {
+        0% { transform: translateY(0) scale(1, 1) rotate(0deg); }
+        16% { transform: translateY(8px) scale(1.12, 0.86) rotate(-4deg); }
+        34% { transform: translateY(-10px) scale(0.9, 1.16) rotate(5deg); }
+        52% { transform: translateY(4px) scale(1.08, 0.92) rotate(-3deg); }
+        70% { transform: translateY(-4px) scale(0.96, 1.06) rotate(2deg); }
+        100% { transform: translateY(0) scale(1, 1) rotate(0deg); }
+      }
+      .crumb {
+        position: fixed;
+        z-index: 6;
+        pointer-events: none;
+        font-size: 22px;
+        line-height: 1;
+        animation: crumb-in 0.72s ease-in forwards;
+      }
+      @keyframes crumb-in {
+        0% { transform: translate(0, 0) scale(1) rotate(-12deg); opacity: 1; }
+        100% { transform: translate(var(--dx), var(--dy)) scale(0.15) rotate(24deg); opacity: 0; }
+      }
       .char {
         position: relative;
+        cursor: pointer;
+      }
+      .char.aware .body,
+      .char.aware img,
+      .char.aware video {
+        transform-origin: center bottom;
+        animation: sway 0.55s ease;
+      }
+      @keyframes sway {
+        0%, 100% { transform: rotate(0deg); }
+        40% { transform: rotate(-4deg); }
+        70% { transform: rotate(3deg); }
       }
       .body {
         height: var(--pet-h, 140px);
@@ -46,22 +86,18 @@
         width: calc(var(--pet-h, 140px) * 335 / 449);
         background-image: url("assets/B-sit-talk.png");
       }
-      #bodyA.talking,
-      #bodyB.talking {
-        animation: mouth 0.5s infinite;
-      }
-      .char.extra img {
+      #bodyA.open { background-position: calc(var(--pet-h, 140px) * -305 / 452) 0; }
+      #bodyB.open { background-position: calc(var(--pet-h, 140px) * -335 / 449) 0; }
+      .char.extra img,
+      .char.extra video {
         height: var(--pet-h, 140px);
         width: auto;
+        background: transparent;
         user-select: none;
         -webkit-user-drag: none;
       }
       .char.off {
         display: none;
-      }
-      @keyframes mouth {
-        0%, 49.9% { background-position: 0 0; }
-        50%, 100% { background-position: 100% 0; }
       }
       .bubble {
         position: absolute;
@@ -76,7 +112,8 @@
         border-radius: 10px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
         width: max-content;
-        max-width: 180px;
+        max-width: 220px;
+        overflow-wrap: anywhere;
         text-align: center;
         white-space: normal;
         opacity: 0;
@@ -85,7 +122,11 @@
       }
       .bubble.show {
         opacity: 1;
+        pointer-events: auto;
+        cursor: pointer;
       }
+      .char.extra .bubble.side-a { left: 28%; }
+      .char.extra .bubble.side-b { left: 72%; }
       .pets.hidden {
         display: none;
       }
@@ -98,7 +139,7 @@
         transform: translateX(-50%);
         background-color: transparent;
         filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.25));
-        -webkit-app-region: drag;
+        cursor: grab;
         opacity: 0;
         transition: opacity 180ms ease;
       }
@@ -126,20 +167,6 @@
       <canvas id="clip"></canvas>
     </div>
     <script>
-      const SCRIPT = `老妈妈: 你看球吗？
-老爸爸: 不看
-老妈妈: 好..算了
-
-老妈妈: 你学舞几年了
-老爸爸: 二三年吧
-
-老妈妈: 评价一下我今天的ootd，好好评价哦！
-老爸爸: 看得出来是一套黑色极简风格，潮流中带着一丝复古
-老妈妈: And then
-
-老妈妈: 成都有什么特色美食
-老爸爸: 麻辣兔头`;
-
       const pets = document.getElementById("pets");
       const clip = document.getElementById("clip");
       let strollId = 0;
@@ -153,26 +180,52 @@
       const bubbleA = document.getElementById("bubbleA");
       const bubbleB = document.getElementById("bubbleB");
       let timers = [];
+      let talkQueue = [];
+      let talkAt = -1;
+      let talkAuto = false;
+      let lingerTimer = null;
+      let mouthTimer = 0;
+      let mouthBody = null;
       let clipRaf = 0;
       let clipVideo = null;
 
-      function resolveWho(name) {
+      function stopMouth() {
+        if (mouthTimer) clearInterval(mouthTimer);
+        mouthTimer = 0;
+        mouthBody = null;
+        bodyA.classList.remove("open");
+        bodyB.classList.remove("open");
+      }
+
+      function startMouth(body) {
+        if (mouthBody === body) return;
+        stopMouth();
+        mouthBody = body;
+        mouthTimer = setInterval(() => {
+          if (mouthBody) mouthBody.classList.toggle("open");
+        }, 240);
+      }
+
+      function resolveWho(name, leftName, rightName) {
         const k = String(name || "").trim();
-        if (/^a$/i.test(k) || k === "老妈妈") return "A";
-        if (/^b$/i.test(k) || k === "老爸爸") return "B";
+        if (!k) return null;
+        if (leftName && k === leftName) return "A";
+        if (rightName && k === rightName) return "B";
+        if (/^a$/i.test(k)) return "A";
+        if (/^b$/i.test(k)) return "B";
         return null;
       }
 
-      function parseDialogues(text) {
+      function parseDialogues(text, leftName, rightName) {
         const out = [];
-        for (const block of text.split(/\n\s*\n/)) {
+        for (const block of String(text || "").split(/\n\s*\n/)) {
           const lines = [];
           for (const raw of block.split("\n")) {
             const line = raw.trim();
             if (!line || line.startsWith("#") || line.startsWith("//") || line === "---") continue;
             const m = line.match(/^(.+?)\s*[:：]\s*(.+)$/);
             if (!m) continue;
-            const who = resolveWho(m[1]);
+            const who = resolveWho(m[1], leftName, rightName);
             if (!who) continue;
             lines.push({ who, text: m[2].trim() });
           }
@@ -181,7 +234,10 @@
         return out;
       }
 
-      const dialogues = parseDialogues(SCRIPT);
+      let dialogues = [];
+      let actions = [];
+      let activeId = "lumu";
+      let castKey = "";
       let autoOn = true;
       let intervalMin = 8;
       let intervalMax = 20;
@@ -211,35 +267,72 @@
             scheduleAuto();
             return;
           }
-          talk(Math.floor(Math.random() * dialogues.length));
+          talk(Math.floor(Math.random() * dialogues.length), true);
         }, ms);
       }
 
+      function clearLinger() {
+        if (lingerTimer) clearTimeout(lingerTimer);
+        lingerTimer = null;
+      }
+
       function reset() {
+        clearLinger();
+        talkQueue = [];
+        talkAt = -1;
+        talkAuto = false;
         for (const t of timers) clearTimeout(t);
         timers = [];
-        bodyA.classList.remove("talking");
-        bodyB.classList.remove("talking");
-        bubbleA.classList.remove("show");
-        bubbleB.classList.remove("show");
-        bubbleA.textContent = "";
-        bubbleB.textContent = "";
+        stopMouth();
+        document.querySelectorAll(".bubble").forEach((bubble) => {
+          bubble.classList.remove("show");
+          bubble.textContent = "";
+        });
+      }
+
+      function armLinger() {
+        clearLinger();
+        const wait = talkAt >= talkQueue.length - 1 ? 2600 : 2200;
+        lingerTimer = setTimeout(() => {
+          if (talkAt >= 0 && talkAt < talkQueue.length - 1) advanceTalk();
+          else {
+            reset();
+            busy = false;
+            scheduleAuto();
+          }
+        }, wait);
       }
 
       function say(who, text) {
-        bodyA.classList.remove("talking");
-        bodyB.classList.remove("talking");
-        bubbleA.classList.remove("show");
-        bubbleB.classList.remove("show");
-        const body = who === "A" ? bodyA : bodyB;
-        const bubble = who === "A" ? bubbleA : bubbleB;
-        body.classList.add("talking");
-        bubble.textContent = text;
-        bubble.classList.add("show");
+        document.querySelectorAll(".bubble").forEach((bubble) => {
+          bubble.classList.remove("show");
+          bubble.textContent = "";
+        });
+        if (activeId === "lumu" && (who === "A" || who === "B")) {
+          const body = who === "A" ? bodyA : bodyB;
+          const bubble = who === "A" ? bubbleA : bubbleB;
+          const other = who === "A" ? bodyB : bodyA;
+          other.classList.remove("open");
+          startMouth(body);
+          bubble.textContent = text;
+          bubble.classList.add("show");
+          return;
+        }
+        stopMouth();
+        const side = who === "B" ? "side-b" : "side-a";
+        const host = document.querySelector(
+          `.char.extra[data-id="${CSS.escape(activeId)}"] .bubble.${side}`
+        );
+        if (!host) return;
+        host.textContent = text;
+        host.classList.add("show");
       }
 
-      function dialogueTitles() {
-        return dialogues.map((d) => d[0].text.slice(0, 14));
+      function menuPack() {
+        return {
+          dialogues: dialogues.map((d) => String(d[0].text || "").slice(0, 14)),
+          actions: actions.map((a) => String(a.name || "动作")),
+        };
       }
 
       function flipClip(left) {
@@ -282,11 +375,16 @@
         }
       }
 
-      function clipSize() {
+      function clipSize(vw, vh) {
         const petH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--pet-h")) || 140;
         const h = Math.round(petH * 1.42);
-        const w = Math.max(1, Math.round((h * 1112) / 834));
+        const w = Math.max(1, Math.round((h * (vw || 1112)) / (vh || 834)));
         return { w, h };
+      }
+
+      function shouldKey(action) {
+        if (!action || action.key === false) return false;
+        return !/\.webm$/i.test(action.src || "");
       }
 
       function fitClip(w, h) {
@@ -307,7 +405,9 @@
         ctx.putImageData(img, 0, 0);
       }
 
-      async function playStroll() {
+      async function playAction(index) {
+        const action = actions[index];
+        if (!action || !action.src) return;
         if (autoTimer) {
           clearTimeout(autoTimer);
           autoTimer = null;
@@ -316,12 +416,10 @@
         reset();
         busy = true;
         const id = strollId;
-        const { w, h } = clipSize();
-        fitClip(w, h);
 
         const v = document.createElement("video");
         v.className = "clip-src";
-        v.src = "assets/pair-stroll.mp4";
+        v.src = action.src;
         v.muted = true;
         v.autoplay = true;
         v.playsInline = true;
@@ -347,6 +445,8 @@
           return;
         }
 
+        const { w, h } = clipSize(v.videoWidth, v.videoHeight);
+        fitClip(w, h);
         clip.width = w;
         clip.height = h;
         clip.style.width = `${w}px`;
@@ -354,17 +454,22 @@
         clip.style.display = "block";
         clip.style.opacity = "0";
         const ctx = clip.getContext("2d", { willReadFrequently: true });
-        let walkArmed = true;
+        const useKey = shouldKey(action);
+        const walkAt = Number(action.walkAt) || STROLL_WALK_AT;
+        const walkMs = Number(action.walkMs) || STROLL_WALK_MS;
+        let walkArmed = !!action.walk;
         const paint = () => {
           if (clipVideo !== v || v.ended) return;
           ctx.clearRect(0, 0, w, h);
           ctx.drawImage(v, 0, 0, w, h);
-          try {
-            keyWhite(ctx, w, h);
-          } catch (_) {}
-          if (walkArmed && v.currentTime * 1000 >= STROLL_WALK_AT) {
+          if (useKey) {
+            try {
+              keyWhite(ctx, w, h);
+            } catch (_) {}
+          }
+          if (walkArmed && v.currentTime * 1000 >= walkAt) {
             walkArmed = false;
-            if (window.pet) window.pet.walkSlide(STROLL_WALK_MS);
+            if (window.pet) window.pet.walkSlide(walkMs);
           }
           if (!v.ended) clipRaf = requestAnimationFrame(paint);
         };
@@ -402,10 +507,17 @@
         scheduleAuto();
       }
 
-      function talk(index) {
+      function presentLine() {
+        const line = talkQueue[talkAt];
+        if (!line) return;
+        say(line.who, line.text);
+        armLinger();
+      }
+
+      function talk(index, auto) {
         if (!dialogues.length) return;
         const lines = dialogues[index];
-        if (!lines) return;
+        if (!lines || !lines.length) return;
         if (autoTimer) {
           clearTimeout(autoTimer);
           autoTimer = null;
@@ -413,46 +525,323 @@
         stopClip();
         reset();
         busy = true;
-        lines.forEach((line, i) => {
-          timers.push(setTimeout(() => say(line.who, line.text), i * 2200));
-        });
-        timers.push(setTimeout(() => {
+        talkAuto = !!auto;
+        talkQueue = lines;
+        talkAt = 0;
+        presentLine();
+      }
+
+      function advanceTalk() {
+        if (talkAt < 0 || !talkQueue.length) return;
+        if (talkAt >= talkQueue.length - 1) {
           reset();
           busy = false;
           scheduleAuto();
-        }, lines.length * 2200));
+          return;
+        }
+        talkAt += 1;
+        presentLine();
       }
 
-      scheduleAuto();
+      function poke(who) {
+        if (clipVideo) return;
+        const pool = [];
+        dialogues.forEach((block) => {
+          block.forEach((line) => {
+            if (line.who === who) pool.push(line);
+          });
+        });
+        if (!pool.length) return;
+        const line = pool[Math.floor(Math.random() * pool.length)];
+        if (autoTimer) {
+          clearTimeout(autoTimer);
+          autoTimer = null;
+        }
+        reset();
+        busy = true;
+        talkQueue = [line];
+        talkAt = 0;
+        presentLine();
+      }
+
+      let viewSig = "";
+
+      function loadCast(stage) {
+        const id = (stage && stage.activeId) || "lumu";
+        const extras = (stage && stage.extras) || [];
+        const extra = extras.find((item) => item.id === id);
+        const lumu = (stage && stage.lumu) || {};
+        const source = id === "lumu" ? lumu : extra || {};
+        const dialogue = source.dialogue || "";
+        const leftName = source.leftName || (id === "lumu" ? "老妈妈" : "");
+        const rightName = source.rightName || (id === "lumu" ? "老爸爸" : "");
+        const key = `${id}\n${leftName}\n${rightName}\n${dialogue}`;
+        activeId = id;
+        dialogues = parseDialogues(dialogue, leftName, rightName);
+        actions = source.actions || [];
+        if (key === castKey) return;
+        castKey = key;
+        reset();
+        scheduleAuto();
+      }
 
       function applyStage(stage) {
+        loadCast(stage);
         const extras = (stage && stage.extras) || [];
         const showAll = !!(stage && stage.showAll);
-        const activeId = (stage && stage.activeId) || "lumu";
+        const id = (stage && stage.activeId) || "lumu";
         const petSize = (stage && stage.petSize) || 140;
         document.documentElement.style.setProperty("--pet-h", `${petSize}px`);
+        const sig = [
+          showAll,
+          id,
+          petSize,
+          extras.map((item) => `${item.id}:${item.image}`).join("|"),
+        ].join("~");
+        if (sig === viewSig) return;
+        viewSig = sig;
         pets.querySelectorAll(".char.built-in").forEach((el) => {
-          el.classList.toggle("off", !showAll && activeId !== "lumu");
+          el.classList.toggle("off", !showAll && id !== "lumu");
         });
         pets.querySelectorAll(".char.extra").forEach((el) => el.remove());
         for (const extra of extras) {
-          const on = showAll || extra.id === activeId;
+          const on = showAll || extra.id === id;
           if (!on) continue;
           const wrap = document.createElement("div");
           wrap.className = "char extra";
           wrap.dataset.id = extra.id;
-          const img = document.createElement("img");
-          img.src = extra.image;
-          img.alt = extra.name || "";
-          wrap.appendChild(img);
+          const bubbleA = document.createElement("div");
+          bubbleA.className = "bubble side-a";
+          const bubbleB = document.createElement("div");
+          bubbleB.className = "bubble side-b";
+          const src = extra.image || "";
+          const anim = /\.(webm|mp4)$/i.test(src)
+            ? document.createElement("video")
+            : document.createElement("img");
+          anim.src = src;
+          anim.alt = extra.name || "";
+          if (anim.tagName === "VIDEO") {
+            anim.autoplay = true;
+            anim.muted = true;
+            anim.loop = true;
+            anim.playsInline = true;
+            anim.setAttribute("playsinline", "true");
+            anim.setAttribute("muted", "true");
+          }
+          wrap.append(bubbleA, bubbleB, anim);
           pets.appendChild(wrap);
         }
+        const line = talkQueue[talkAt];
+        if (line) say(line.who, line.text);
       }
 
       if (window.pet && window.pet.getStage) {
         window.pet.getStage().then(applyStage);
         window.pet.onStage(applyStage);
       }
+
+      let pointer = null;
+      let pokeTimer = 0;
+
+      function boundsOf(nodes) {
+        let left = Infinity;
+        let top = Infinity;
+        let right = -Infinity;
+        let bottom = -Infinity;
+        for (const el of nodes) {
+          const rect = el.getBoundingClientRect();
+          if (!rect.width || !rect.height) continue;
+          left = Math.min(left, rect.left);
+          top = Math.min(top, rect.top);
+          right = Math.max(right, rect.right);
+          bottom = Math.max(bottom, rect.bottom);
+        }
+        if (left === Infinity) return null;
+        return { left, top, width: right - left, height: bottom - top };
+      }
+
+      function petBox() {
+        const nodes = [...document.querySelectorAll(".char:not(.off) .body, .char:not(.off) img, .char:not(.off) video")];
+        if (clip.style.display === "block") nodes.push(clip);
+        return boundsOf(nodes);
+      }
+
+      function feedBox() {
+        const nodes = [...document.querySelectorAll(".char:not(.off) .body, .char:not(.off) img, .char:not(.off) video, .bubble.show")];
+        if (clip.style.display === "block") nodes.push(clip);
+        return boundsOf(nodes);
+      }
+
+      function whoAt(e) {
+        if (!e.target.closest) return null;
+        if (e.target.closest(".bubble.show")) return { bubble: true };
+        if (clip.style.display === "block" && e.target.closest("#clip")) return { clip: true };
+        const char = e.target.closest(".char");
+        if (!char || char.classList.contains("off")) return null;
+        if (char.querySelector("#bodyA")) return { who: "A" };
+        if (char.querySelector("#bodyB")) return { who: "B" };
+        const art = char.querySelector("img, video") || char;
+        const rect = art.getBoundingClientRect();
+        const onLeft = e.clientX < rect.left + rect.width / 2;
+        return { who: onLeft ? "A" : "B" };
+      }
+
+      document.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0) return;
+        const hit = whoAt(e);
+        if (!hit) return;
+        pointer = { x: e.screenX, y: e.screenY, moved: false, hit };
+        if (window.pet && window.pet.holdCapture) window.pet.holdCapture(true);
+        if (e.target.setPointerCapture) {
+          try { e.target.setPointerCapture(e.pointerId); } catch (_) {}
+        }
+      });
+
+      document.addEventListener("pointermove", (e) => {
+        if (!pointer) return;
+        const dx = e.screenX - pointer.x;
+        const dy = e.screenY - pointer.y;
+        if (!pointer.moved && Math.hypot(dx, dy) < 5) return;
+        pointer.moved = true;
+        pets.classList.add("dragging");
+        if (window.pet && window.pet.moveBy) window.pet.moveBy(dx, dy, petBox());
+        pointer.x = e.screenX;
+        pointer.y = e.screenY;
+      });
+
+      document.addEventListener("pointerup", () => {
+        if (window.pet && window.pet.holdCapture) window.pet.holdCapture(false);
+        if (!pointer) return;
+        const info = pointer;
+        pointer = null;
+        pets.classList.remove("dragging");
+        if (info.moved || info.hit.clip) return;
+        if (info.hit.bubble || (talkAt >= 0 && talkQueue.length > 1)) {
+          clearTimeout(pokeTimer);
+          advanceTalk();
+          return;
+        }
+        clearTimeout(pokeTimer);
+        pokeTimer = setTimeout(() => poke(info.hit.who), 230);
+      });
+
+      document.addEventListener("dblclick", (e) => {
+        const hit = whoAt(e);
+        if (!hit || hit.bubble || hit.clip) return;
+        clearTimeout(pokeTimer);
+        if (actions.length) playAction(0);
+      });
+
+      document.addEventListener("pointerover", (e) => {
+        const char = e.target.closest && e.target.closest(".char");
+        if (!char || char.classList.contains("off") || char.classList.contains("aware")) return;
+        if (e.relatedTarget && char.contains(e.relatedTarget)) return;
+        char.classList.add("aware");
+      });
+      document.addEventListener("animationend", (e) => {
+        if (e.animationName !== "sway") return;
+        const char = e.target.closest && e.target.closest(".char");
+        if (char) char.classList.remove("aware");
+      });
+
+      if (window.pet && window.pet.hitBox) {
+        let lastHit = "";
+        const reportHit = () => {
+          const box = feedBox();
+          const sig = box
+            ? [box.left, box.top, box.width, box.height].map((n) => Math.round(n)).join(",")
+            : "";
+          if (sig === lastHit) return;
+          lastHit = sig;
+          window.pet.hitBox(box);
+        };
+        reportHit();
+        setInterval(reportHit, 120);
+      }
+      if (window.pet && window.pet.onHungry) {
+        window.pet.onHungry((on) => pets.classList.toggle("hungry", on));
+      }
+
+      const BITES = ["啊呜！", "好吃。", "再来一份。", "咔嚓。", "咽下去了。", "这个有点脆。"];
+
+      function spawnCrumbs(n) {
+        const box = petBox();
+        if (!box) return;
+        const destX = box.left + box.width / 2;
+        const destY = box.top + box.height * 0.28;
+        const count = Math.min(6, Math.max(2, n));
+        for (let i = 0; i < count; i++) {
+          const el = document.createElement("div");
+          el.className = "crumb";
+          el.textContent = ["🍪", "📄", "🍙"][i % 3];
+          const x = destX + (Math.random() * 120 - 60);
+          const y = destY - 80 - Math.random() * 50;
+          el.style.left = `${x}px`;
+          el.style.top = `${y}px`;
+          el.style.setProperty("--dx", `${destX - x}px`);
+          el.style.setProperty("--dy", `${destY - y}px`);
+          document.body.appendChild(el);
+          setTimeout(() => el.remove(), 760);
+        }
+      }
+
+      function feedReact(result) {
+        pets.classList.remove("munch");
+        void pets.offsetWidth;
+        pets.classList.add("munch");
+        spawnCrumbs(result.eaten || 1);
+        const bite = BITES[Math.floor(Math.random() * BITES.length)];
+        const extra = result.eaten > 1 ? ` ${result.eaten}份` : "";
+        const who = Math.random() < 0.5 ? "A" : "B";
+        if (autoTimer) {
+          clearTimeout(autoTimer);
+          autoTimer = null;
+        }
+        reset();
+        busy = true;
+        say(who, bite + extra);
+        clearLinger();
+        lingerTimer = setTimeout(() => {
+          reset();
+          busy = false;
+          scheduleAuto();
+        }, 1800);
+        setTimeout(() => pets.classList.remove("munch"), 800);
+      }
+
+      window.addEventListener("dragenter", (e) => {
+        e.preventDefault();
+        pets.classList.add("hungry");
+      }, true);
+      window.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+        pets.classList.add("hungry");
+      }, true);
+      window.addEventListener("dragleave", (e) => {
+        if (e.relatedTarget && document.documentElement.contains(e.relatedTarget)) return;
+        pets.classList.remove("hungry");
+      }, true);
+      window.addEventListener("drop", async (e) => {
+        e.preventDefault();
+        pets.classList.remove("hungry");
+        const files = [...(e.dataTransfer && e.dataTransfer.files ? e.dataTransfer.files : [])];
+        if (!files.length || !window.pet || !window.pet.feed) return;
+        const paths = files.map((file) => {
+          try {
+            return window.pet.pathForFile(file);
+          } catch (_) {
+            return file.path || "";
+          }
+        }).filter(Boolean);
+        if (!paths.length) {
+          say("A", "这个吃不了。");
+          return;
+        }
+        const result = await window.pet.feed(paths);
+        if (result && result.eaten) feedReact(result);
+        else say("A", "这个吃不了。");
+      }, true);
     </script>
   </body>
 </html>

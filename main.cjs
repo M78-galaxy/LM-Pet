@@ -1,20 +1,46 @@
-const { app, BrowserWindow, Menu, ipcMain, screen, Tray, nativeImage, dialog } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, screen, Tray, nativeImage, dialog, shell } = require("electron");
+const { spawn } = require("child_process");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 
-const settingsPath = path.join(__dirname, "settings.json");
+app.setName("LM-Pet");
+
+function liveSettingsFile() {
+  if (app.isPackaged) return path.join(app.getPath("userData"), "settings.json");
+  return path.join(__dirname, "settings.json");
+}
 
 function loadSettings() {
+  const live = liveSettingsFile();
   try {
-    return JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    return JSON.parse(fs.readFileSync(live, "utf8"));
   } catch {
-    return {};
+    if (!app.isPackaged) return {};
+    try {
+      const bundled = JSON.parse(fs.readFileSync(path.join(__dirname, "settings.json"), "utf8"));
+      delete bundled.x;
+      delete bundled.y;
+      bundled.showAll = false;
+      bundled.fed = { count: 0, bytes: 0 };
+      fs.mkdirSync(path.dirname(live), { recursive: true });
+      fs.writeFileSync(live, JSON.stringify(bundled, null, 2));
+      return bundled;
+    } catch {
+      return {};
+    }
   }
 }
 
 function saveSettings(partial) {
   const next = { ...loadSettings(), ...partial };
-  fs.writeFileSync(settingsPath, JSON.stringify(next, null, 2));
+  const live = liveSettingsFile();
+  fs.mkdirSync(path.dirname(live), { recursive: true });
+  fs.writeFileSync(live, JSON.stringify(next, null, 2));
+}
+
+function devLocked() {
+  return app.isPackaged ? { error: "安装包里不能改角色和对话。" } : null;
 }
 
 const PACES = [
@@ -102,6 +128,70 @@ ipcMain.on("walk-slide", (event, payload) => {
   slideWindow(BrowserWindow.fromWebContents(event.sender), payload && payload.ms);
 });
 ipcMain.on("cancel-slide", () => stopSlide());
+
+ipcMain.on("pet:move-by", (event, payload) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win || win.isDestroyed()) return;
+  const dx = Math.round((payload && payload.dx) || 0);
+  const dy = Math.round((payload && payload.dy) || 0);
+  const bounds = win.getBounds();
+  const area = screen.getDisplayMatching(bounds).bounds;
+  const box = payload && payload.box;
+  const petLeft = box && Number.isFinite(Number(box.left)) ? Number(box.left) : 0;
+  const petTop = box && Number.isFinite(Number(box.top)) ? Number(box.top) : 0;
+  const petW = box && Number(box.width) > 0 ? Number(box.width) : bounds.width;
+  const petH = box && Number(box.height) > 0 ? Number(box.height) : bounds.height;
+  let x = bounds.x + dx;
+  let y = bounds.y + dy;
+  const minX = area.x - petLeft;
+  const maxX = area.x + area.width - petLeft - petW;
+  const minY = area.y - petTop;
+  const maxY = area.y + area.height - petTop - petH;
+  if (minX <= maxX) x = Math.max(minX, Math.min(x, maxX));
+  if (minY <= maxY) y = Math.max(minY, Math.min(y, maxY));
+  win.setPosition(Math.round(x), Math.round(y));
+});
+
+ipcMain.handle("pet:feed", async (_event, paths) => {
+  const list = Array.isArray(paths) ? paths.map((item) => String(item || "")).filter(Boolean) : [];
+  const roots = [path.resolve(__dirname)];
+  if (app.isPackaged) {
+    roots.push(path.resolve(process.resourcesPath));
+    roots.push(path.resolve(process.execPath, "..", "..", ".."));
+  }
+  const blocked = (abs) => roots.some((root) => abs === root || abs.startsWith(root + path.sep));
+  let eaten = 0;
+  let bytes = 0;
+  const names = [];
+  const skipped = [];
+  for (const filePath of list) {
+    const abs = path.resolve(filePath);
+    if (blocked(abs)) {
+      skipped.push(path.basename(abs));
+      continue;
+    }
+    try {
+      const stat = fs.statSync(abs);
+      await shell.trashItem(abs);
+      eaten += 1;
+      bytes += stat.size || 0;
+      names.push(path.basename(abs));
+    } catch {
+      skipped.push(path.basename(filePath));
+    }
+  }
+  if (eaten) {
+    const fed = fedFrom(loadSettings());
+    saveSettings({ fed: { count: fed.count + eaten, bytes: fed.bytes + bytes } });
+    notifyStage();
+  }
+  const fed = fedFrom(loadSettings());
+  return { eaten, names, skipped, count: fed.count, bytes: fed.bytes };
+});
+
+ipcMain.on("pet:pass-through", (_event, on) => {
+  setIgnoring(!!on);
+});
 ipcMain.on("clip:fit", (_event, payload) => {
   setClipBounds(payload && payload.w, payload && payload.h);
 });
@@ -111,13 +201,279 @@ let tray = null;
 let petWin = null;
 let settingsWin = null;
 let clipLock = false;
+let hitBox = null;
+let holdCapture = false;
+let ignoring = true;
+let osDrag = false;
+let dragGraceUntil = 0;
+let hungryOn = false;
+let dragProc = null;
+let dragWatchReady = false;
+let ignoreTimer = null;
+
+function setIgnoring(on) {
+  if (!petWin || petWin.isDestroyed()) return;
+  if (on) {
+    if (ignoring || ignoreTimer) return;
+    ignoreTimer = setTimeout(() => {
+      ignoreTimer = null;
+      if (!petWin || petWin.isDestroyed() || holdCapture || dragHot()) return;
+      ignoring = true;
+      petWin.setIgnoreMouseEvents(true, { forward: true });
+    }, 160);
+    return;
+  }
+  if (ignoreTimer) {
+    clearTimeout(ignoreTimer);
+    ignoreTimer = null;
+  }
+  if (!ignoring) return;
+  ignoring = false;
+  petWin.setIgnoreMouseEvents(false);
+}
+
+function setHungry(on) {
+  if (!petWin || petWin.isDestroyed() || hungryOn === on) return;
+  hungryOn = on;
+  petWin.webContents.send("pet:hungry", on);
+}
+
+function dragHot() {
+  return osDrag || Date.now() < dragGraceUntil;
+}
+
+function tickHit() {
+  if (!petWin || petWin.isDestroyed()) return;
+  if (holdCapture) {
+    setIgnoring(false);
+    return;
+  }
+  const cursor = screen.getCursorScreenPoint();
+  const bounds = petWin.getContentBounds();
+  const hot = dragHot();
+  const windowPad = hot ? 28 : 0;
+  const overWindow =
+    cursor.x >= bounds.x - windowPad &&
+    cursor.y >= bounds.y - windowPad &&
+    cursor.x <= bounds.x + bounds.width + windowPad &&
+    cursor.y <= bounds.y + bounds.height + windowPad;
+  const pad = dragWatchReady ? 16 : 72;
+  let overPet = false;
+  if (hitBox && hitBox.width > 0 && hitBox.height > 0) {
+    const left = bounds.x + hitBox.left - pad;
+    const top = bounds.y + hitBox.top - pad;
+    const right = bounds.x + hitBox.left + hitBox.width + pad;
+    const bottom = bounds.y + hitBox.top + hitBox.height + pad;
+    overPet = cursor.x >= left && cursor.x <= right && cursor.y >= top && cursor.y <= bottom;
+  }
+  const inside = hot ? overWindow || overPet : overPet;
+  setIgnoring(!inside);
+  setHungry(osDrag && (overWindow || overPet));
+}
+
+ipcMain.on("pet:hit-box", (_event, box) => {
+  if (!box || !(Number(box.width) > 0) || !(Number(box.height) > 0)) {
+    hitBox = null;
+    return;
+  }
+  hitBox = {
+    left: Number(box.left) || 0,
+    top: Number(box.top) || 0,
+    width: Number(box.width),
+    height: Number(box.height),
+  };
+});
+
+ipcMain.on("pet:hold-capture", (_event, on) => {
+  holdCapture = !!on;
+  if (holdCapture) setIgnoring(false);
+});
+
+const DRAG_SWIFT = `import Cocoa
+var dragging = false
+func emit(_ line: String) {
+  print(line)
+  fflush(stdout)
+}
+NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged]) { _ in
+  if !dragging {
+    dragging = true
+    emit("drag")
+  }
+}
+NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseUp]) { _ in
+  if dragging {
+    dragging = false
+    emit("up")
+  }
+}
+emit("ready")
+RunLoop.main.run()
+`;
+
+function attachDragProc(proc) {
+  dragProc = proc;
+  let buf = "";
+  proc.stdout.on("data", (chunk) => {
+    buf += chunk.toString();
+    let idx;
+    while ((idx = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, idx).trim();
+      buf = buf.slice(idx + 1);
+      if (line === "ready") dragWatchReady = true;
+      if (line === "drag") osDrag = true;
+      if (line === "up") {
+        osDrag = false;
+        dragGraceUntil = Date.now() + 320;
+        setHungry(false);
+      }
+    }
+  });
+  proc.on("exit", () => {
+    if (dragProc === proc) dragProc = null;
+  });
+}
+
+function startDragWatch() {
+  const bin = app.isPackaged
+    ? path.join(process.resourcesPath, "bin", "lm-pet-dragwatch")
+    : path.join(__dirname, "bin", "lm-pet-dragwatch");
+  if (fs.existsSync(bin)) {
+    attachDragProc(spawn(bin, [], { stdio: ["ignore", "pipe", "ignore"] }));
+    return;
+  }
+  const src = path.join(os.tmpdir(), "lm-pet-dragwatch.swift");
+  const out = path.join(os.tmpdir(), "lm-pet-dragwatch");
+  try {
+    fs.writeFileSync(src, DRAG_SWIFT);
+  } catch {
+    return;
+  }
+  const compile = spawn("swiftc", ["-o", out, src], { stdio: "ignore" });
+  compile.on("exit", (code) => {
+    if (code === 0 && fs.existsSync(out)) {
+      attachDragProc(spawn(out, [], { stdio: ["ignore", "pipe", "ignore"] }));
+    }
+  });
+}
+
+const LUMU_DIALOGUE = `老妈妈: 你看球吗？
+老爸爸: 不看
+老妈妈: 好..算了
+
+老妈妈: 你学舞几年了
+老爸爸: 二三年吧
+
+老妈妈: 评价一下我今天的ootd，好好评价哦！
+老爸爸: 看得出来是一套黑色极简风格，潮流中带着一丝复古
+老妈妈: And then
+
+老妈妈: 成都有什么特色美食
+老爸爸: 麻辣兔头`;
+
+const LUMU_ACTIONS = [
+  {
+    id: "stroll",
+    name: "牵手逛逛",
+    src: "assets/pair-stroll.mp4",
+    walk: true,
+    key: true,
+  },
+];
 
 function extrasFrom(saved) {
   return Array.isArray(saved.extras) ? saved.extras : [];
 }
 
+function cleanActions(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((item) => item && typeof item.src === "string" && item.src)
+    .map((item) => ({
+      id: String(item.id || `a${Date.now()}`),
+      name: String(item.name || "动作").slice(0, 24),
+      src: item.src,
+      walk: !!item.walk,
+      key: item.key !== false,
+    }));
+}
+
+function lumuCast(saved) {
+  const over = (saved.casts && saved.casts.lumu) || {};
+  return {
+    name: typeof over.name === "string" && over.name.trim() ? over.name.trim() : "橹穆",
+    leftName: typeof over.leftName === "string" && over.leftName.trim() ? over.leftName.trim() : "老妈妈",
+    rightName: typeof over.rightName === "string" && over.rightName.trim() ? over.rightName.trim() : "老爸爸",
+    dialogue: typeof over.dialogue === "string" ? over.dialogue : LUMU_DIALOGUE,
+    actions: Array.isArray(over.actions) ? cleanActions(over.actions) : LUMU_ACTIONS,
+  };
+}
+
+function normalizeExtra(extra) {
+  return {
+    ...extra,
+    name: extra.name || "新角色",
+    leftName: typeof extra.leftName === "string" ? extra.leftName : "",
+    rightName: typeof extra.rightName === "string" ? extra.rightName : "",
+    dialogue: typeof extra.dialogue === "string" ? extra.dialogue : "",
+    actions: cleanActions(extra.actions),
+  };
+}
+
+function castDirName(id) {
+  if (id === "lumu") return "lumu";
+  if (/^c\d+$/.test(String(id || ""))) return String(id);
+  return null;
+}
+
+function readCast(saved, id) {
+  if (id === "lumu") return lumuCast(saved);
+  const extra = extrasFrom(saved).find((item) => item.id === id);
+  if (!extra) return null;
+  return {
+    name: extra.name || "新角色",
+    leftName: typeof extra.leftName === "string" ? extra.leftName : "",
+    rightName: typeof extra.rightName === "string" ? extra.rightName : "",
+    dialogue: typeof extra.dialogue === "string" ? extra.dialogue : "",
+    actions: cleanActions(extra.actions),
+  };
+}
+
+function writeCast(id, patch) {
+  const saved = loadSettings();
+  const current = readCast(saved, id);
+  if (!current) return;
+  const next = {
+    name: patch.name !== undefined ? String(patch.name || "").trim() : current.name,
+    leftName: patch.leftName !== undefined ? String(patch.leftName || "").trim() : current.leftName,
+    rightName: patch.rightName !== undefined ? String(patch.rightName || "").trim() : current.rightName,
+    dialogue: patch.dialogue !== undefined ? patch.dialogue : current.dialogue,
+    actions: patch.actions !== undefined ? patch.actions : current.actions,
+  };
+  if (!next.name) next.name = current.name || (id === "lumu" ? "橹穆" : "新角色");
+  if (id === "lumu") {
+    const casts = { ...(saved.casts || {}), lumu: next };
+    saveSettings({ casts });
+  } else {
+    const extras = extrasFrom(saved).map((item) =>
+      item.id === id
+        ? {
+            ...item,
+            name: next.name,
+            leftName: next.leftName,
+            rightName: next.rightName,
+            dialogue: next.dialogue,
+            actions: next.actions,
+          }
+        : item
+    );
+    saveSettings({ extras });
+  }
+  notifyStage();
+}
+
 function stageFrom(saved) {
-  const extras = extrasFrom(saved);
+  const extras = extrasFrom(saved).map(normalizeExtra);
   let activeId = saved.activeId || "lumu";
   if (activeId !== "lumu" && !extras.some((item) => item.id === activeId)) {
     activeId = "lumu";
@@ -126,9 +482,20 @@ function stageFrom(saved) {
   petSize = Math.max(80, Math.min(240, Math.round(petSize)));
   return {
     extras,
+    lumu: lumuCast(saved),
     activeId,
     showAll: !!saved.showAll,
     petSize,
+    fed: fedFrom(saved),
+    editable: !app.isPackaged,
+  };
+}
+
+function fedFrom(saved) {
+  const fed = saved && saved.fed;
+  return {
+    count: Math.max(0, Math.round(Number(fed && fed.count) || 0)),
+    bytes: Math.max(0, Math.round(Number(fed && fed.bytes) || 0)),
   };
 }
 
@@ -164,29 +531,28 @@ function setClipBounds(w, h) {
   keepFeetSetBounds((Number(w) || 240) + 48, (Number(h) || 180) + 36);
 }
 
-function clearClipBounds() {
-  clipLock = false;
-  if (!petWin || petWin.isDestroyed()) return;
-  const stage = stageFrom(loadSettings());
+function idleWindowSize(stage) {
   const scale = stage.petSize / 140;
   let width = 420;
   if (stage.showAll) width = 420 + stage.extras.length * 120;
   else if (stage.activeId !== "lumu") width = 320;
   width = Math.round(width * scale);
-  keepFeetSetBounds(width, Math.round(84 + stage.petSize));
+  // 108 matches .pets padding-top, so a two-line bubble stays inside the window.
+  const height = Math.round(108 + 20 + stage.petSize);
+  return { width, height };
+}
+
+function clearClipBounds() {
+  clipLock = false;
+  if (!petWin || petWin.isDestroyed()) return;
+  const size = idleWindowSize(stageFrom(loadSettings()));
+  keepFeetSetBounds(size.width, size.height);
 }
 
 function fitPetWindow() {
   if (!petWin || petWin.isDestroyed() || clipLock) return;
-  const stage = stageFrom(loadSettings());
-  const scale = stage.petSize / 140;
-  let width = 420;
-  if (stage.showAll) width = 420 + stage.extras.length * 120;
-  else if (stage.activeId !== "lumu") width = 320;
-  width = Math.round(width * scale);
-  const height = Math.round(84 + stage.petSize);
-  const [x, y] = petWin.getPosition();
-  petWin.setBounds({ x, y, width, height });
+  const size = idleWindowSize(stageFrom(loadSettings()));
+  keepFeetSetBounds(size.width, size.height);
 }
 
 function openSettings() {
@@ -196,9 +562,9 @@ function openSettings() {
     return;
   }
   settingsWin = new BrowserWindow({
-    width: 520,
-    height: 420,
-    title: "橹穆桌宠 · 设置",
+    width: 560,
+    height: 760,
+    title: "LM-Pet · 设置",
     icon: appIcon(),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -221,6 +587,7 @@ ipcMain.handle("stage:setActive", (_event, id) => {
 });
 
 ipcMain.handle("stage:setShowAll", (_event, on) => {
+  if (app.isPackaged) return { ok: false };
   saveSettings({ showAll: !!on });
   notifyStage();
   return { ok: true };
@@ -234,6 +601,8 @@ ipcMain.handle("stage:setPetSize", (_event, size) => {
 });
 
 ipcMain.handle("extras:add", async (event, payload) => {
+  const locked = devLocked();
+  if (locked) return locked;
   const parent = BrowserWindow.fromWebContents(event.sender);
   const picked = await dialog.showOpenDialog(parent || undefined, {
     title: "选择一张待机图",
@@ -251,13 +620,15 @@ ipcMain.handle("extras:add", async (event, payload) => {
   const image = path.join("custom", id, `idle${ext}`).replace(/\\/g, "/");
   const name = (payload && payload.name && String(payload.name).trim()) || "新角色";
   const extras = extrasFrom(loadSettings());
-  extras.push({ id, name, image });
+  extras.push({ id, name, image, leftName: "", rightName: "", dialogue: "", actions: [] });
   saveSettings({ extras, activeId: id, showAll: false });
   notifyStage();
   return { ok: true, id };
 });
 
 ipcMain.handle("extras:remove", (_event, id) => {
+  const locked = devLocked();
+  if (locked) return locked;
   const saved = loadSettings();
   const extras = extrasFrom(saved).filter((item) => item.id !== id);
   const patch = { extras };
@@ -268,6 +639,89 @@ ipcMain.handle("extras:remove", (_event, id) => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
   notifyStage();
+  return { ok: true };
+});
+
+ipcMain.handle("cast:setDialogue", (_event, payload) => {
+  const locked = devLocked();
+  if (locked) return locked;
+  const id = payload && payload.id;
+  if (!readCast(loadSettings(), id)) return { ok: false };
+  writeCast(id, {
+    name: payload && payload.name,
+    leftName: payload && payload.leftName,
+    rightName: payload && payload.rightName,
+    dialogue: payload && typeof payload.dialogue === "string" ? payload.dialogue : "",
+  });
+  return { ok: true };
+});
+
+ipcMain.handle("cast:addAction", async (event, payload) => {
+  const locked = devLocked();
+  if (locked) return locked;
+  const id = payload && payload.id;
+  const dirName = castDirName(id);
+  if (!dirName || !readCast(loadSettings(), id)) return { ok: false, error: "找不到这个角色" };
+  const parent = BrowserWindow.fromWebContents(event.sender);
+  const picked = await dialog.showOpenDialog(parent || undefined, {
+    title: "选择动作视频",
+    properties: ["openFile"],
+    filters: [{ name: "视频", extensions: ["mp4", "webm", "mov"] }],
+  });
+  if (picked.canceled || !picked.filePaths[0]) return { ok: false };
+  const src = picked.filePaths[0];
+  const actionId = `a${Date.now()}`;
+  const ext = path.extname(src) || ".mp4";
+  const destDir = path.join(__dirname, "custom", dirName);
+  fs.mkdirSync(destDir, { recursive: true });
+  const dest = path.join(destDir, `${actionId}${ext}`);
+  fs.copyFileSync(src, dest);
+  const rel = path.join("custom", dirName, `${actionId}${ext}`).replace(/\\/g, "/");
+  const base = path.basename(src, ext);
+  const name = (payload && payload.name && String(payload.name).trim()) || base || "动作";
+  const current = readCast(loadSettings(), id);
+  writeCast(id, {
+    dialogue: current.dialogue,
+    actions: current.actions.concat([
+      { id: actionId, name: name.slice(0, 24), src: rel, walk: false, key: !/\.webm$/i.test(ext) },
+    ]),
+  });
+  return { ok: true };
+});
+
+ipcMain.handle("cast:setActionWalk", (_event, payload) => {
+  const locked = devLocked();
+  if (locked) return locked;
+  const id = payload && payload.id;
+  const actionId = payload && payload.actionId;
+  const current = readCast(loadSettings(), id);
+  if (!current) return { ok: false };
+  writeCast(id, {
+    dialogue: current.dialogue,
+    actions: current.actions.map((item) =>
+      item.id === actionId ? { ...item, walk: !!(payload && payload.walk) } : item
+    ),
+  });
+  return { ok: true };
+});
+
+ipcMain.handle("cast:removeAction", (_event, payload) => {
+  const locked = devLocked();
+  if (locked) return locked;
+  const id = payload && payload.id;
+  const actionId = payload && payload.actionId;
+  const current = readCast(loadSettings(), id);
+  if (!current) return { ok: false };
+  const doomed = current.actions.find((item) => item.id === actionId);
+  writeCast(id, {
+    dialogue: current.dialogue,
+    actions: current.actions.filter((item) => item.id !== actionId),
+  });
+  if (doomed && doomed.src && !String(doomed.src).startsWith("assets/")) {
+    const abs = path.resolve(__dirname, doomed.src);
+    const root = path.resolve(__dirname, "custom");
+    if (abs.startsWith(root + path.sep) && fs.existsSync(abs)) fs.unlinkSync(abs);
+  }
   return { ok: true };
 });
 
@@ -296,7 +750,7 @@ function trayIcon() {
 function createTray(win) {
   const icon = trayIcon();
   tray = new Tray(icon);
-  tray.setToolTip("橹穆桌宠");
+  tray.setToolTip("LM-Pet");
   tray.on("click", () => {
     if (win.isDestroyed()) return;
     if (win.isVisible()) win.hide();
@@ -334,10 +788,12 @@ function createWindow() {
       preload: path.join(__dirname, "preload.cjs"),
       nodeIntegration: false,
       contextIsolation: true,
+      backgroundThrottling: false,
     },
   });
   petWin = win;
   win.loadFile("index.html");
+  win.setIgnoreMouseEvents(true, { forward: true });
   if (process.platform === "darwin" && app.dock) app.dock.hide();
   createTray(win);
   fitPetWindow();
@@ -353,20 +809,23 @@ function createWindow() {
   });
 
   win.webContents.on("context-menu", async () => {
-    const titles = await win.webContents.executeJavaScript("dialogueTitles()");
-    const items = (titles || []).map((t, i) => ({
-      label: `对话：${t}`,
-      click: () => win.webContents.executeJavaScript(`talk(${i})`),
+    const pack = await win.webContents.executeJavaScript("menuPack()");
+    const actionItems = ((pack && pack.actions) || []).map((name, i) => ({
+      label: `动作：${name}`,
+      click: () => win.webContents.executeJavaScript(`playAction(${i})`),
+    }));
+    const talkItems = ((pack && pack.dialogues) || []).map((title, i) => ({
+      label: `对话：${title}`,
+      click: () => win.webContents.executeJavaScript(`talk(${i}, true)`),
     }));
     const auto = autoFrom(loadSettings());
+    const template = [];
+    if (actionItems.length) template.push(...actionItems);
+    if (actionItems.length && talkItems.length) template.push({ type: "separator" });
+    if (talkItems.length) template.push(...talkItems);
+    if (template.length) template.push({ type: "separator" });
     const menu = Menu.buildFromTemplate([
-      {
-        label: "动作：牵手逛逛",
-        click: () => win.webContents.executeJavaScript("playStroll()"),
-      },
-      { type: "separator" },
-      ...items,
-      { type: "separator" },
+      ...template,
       {
         label: "自动说话",
         submenu: [
@@ -408,5 +867,12 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  startDragWatch();
+  setInterval(tickHit, 16);
+  createWindow();
+});
 app.on("window-all-closed", () => app.quit());
+app.on("will-quit", () => {
+  if (dragProc && !dragProc.killed) dragProc.kill();
+});
