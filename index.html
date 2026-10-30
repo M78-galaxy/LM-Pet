@@ -596,17 +596,19 @@
           showAll,
           id,
           petSize,
-          extras.map((item) => `${item.id}:${item.image}`).join("|"),
+          extras.map((item) => `${item.id}:${item.ready ? 1 : 0}:${item.image}`).join("|"),
         ].join("~");
         if (sig === viewSig) return;
         viewSig = sig;
+        const active = extras.find((item) => item.id === id);
+        const lumuOn = showAll || id === "lumu" || !active || !active.ready;
         pets.querySelectorAll(".char.built-in").forEach((el) => {
-          el.classList.toggle("off", !showAll && id !== "lumu");
+          el.classList.toggle("off", !lumuOn);
         });
         pets.querySelectorAll(".char.extra").forEach((el) => el.remove());
         for (const extra of extras) {
           const on = showAll || extra.id === id;
-          if (!on) continue;
+          if (!on || !extra.ready) continue;
           const wrap = document.createElement("div");
           wrap.className = "char extra";
           wrap.dataset.id = extra.id;

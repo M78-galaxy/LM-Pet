@@ -1,12 +1,12 @@
 {
   "name": "lm-pet",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "LM-Pet",
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --mac dmg --universal",
+    "dist": "node scripts/pack-mac.cjs",
     "dist:win": "electron-builder --win nsis"
   },
   "devDependencies": {
@@ -32,6 +32,7 @@
       "assets/An_pet/idle-2025sport.webp",
       "assets/An_pet/idle-handhold.webp",
       "assets/An_pet/idle-zhenai.webp",
+      "catalog.json",
       "settings.json"
     ],
     "extraResources": [

@@ -1,0 +1,19 @@
+---
+description: LM-Pet 发版习惯。用户要求打包、做安装包或发新版本时遵守。
+alwaysApply: true
+---
+
+# 发版
+
+每次打包都单独放进 `release/v版本号/`，不要写进上一版的目录，也不要覆盖上一版的 dmg。
+
+- 先把 `package.json` 的 `version` 改成这次的版本号。安装包文件名跟着这个版本走。
+- Mac 用 `npm run dist`。产物是两份：`release/v版本号/LM-Pet-版本号-arm64.dmg`（Apple 芯片）和 `release/v版本号/LM-Pet-版本号-x64.dmg`（Intel）。两份都发。未签名，`identity` 保持 null。`.blockmap` 不作为发给别人的文件。不再打 universal。
+- `bin/lm-pet-dragwatch` 只放进 Apple 芯片那一份。Intel 那一份不带它。Intel 上从访达拖文件喂食可能不可用，点人物、对话、换角色仍然可用。
+- 发版说明写在 `release-notes/v版本号.md`。打包脚本会把它复制到 `release/v版本号/更新说明.md`。说明里写：这次给别人看的角色、相对上一版改了什么、Apple 芯片用哪份 dmg、Intel 用哪份（关于本机 → 芯片）、装过旧版的人不用自己删 `~/Library/Application Support/LM-Pet/settings.json`。
+- 安装包带天魔练习室采访的图，以及 `catalog.json` 里写了本地路径的角色动画。现在是 `idle-2025sport.webp`、`idle-handhold.webp`、`idle-zhenai.webp`。这些角色装好就能上台。网上的下载以后再说，`url` 先留空。
+- 正式安装包启动时，如果 `settings.json` 里的 `appVersion` 跟软件版本不同，或网上的名单更新了，会把内置角色并进用户的设置。保留喂食次数、窗口位置、人物大小和说话间隔。用户自己加的角色留着。当前上台的角色还在名单里就不换。
+- 开发用的 `settings.json` 可以留着还没做好的动作，打包脚本不能改这个文件。正在运行的软件会把窗口位置写回它，两边一起写会把没做好的动作冲掉。打进安装包的那一份由 `scripts/pack-mac.cjs` 写到 `release/.pack/settings.json`：去掉这些动作，并把 `activeId` 设为 `lumu`。开发运行不会拿名单覆盖这份设置。
+- 安装包只收软件会读到的素材。`scripts/pack-mac.cjs` 从页面和 `catalog.json` 收集 `assets/` 路径，再加 `assets/logo.png` 和 `assets/lumu-thumb.png`。绿幕原片、旧图留在仓库里，不进安装包。牵手逛逛不进安装包。
+- Windows 安装包仍要在 Windows 上用 `npm run dist:win` 打。拷过去之前，把工程放在 `/Users/galaxym78/Desktop/Projects/LM-Pet_win/v版本号/`，不要写进上一版的目录。这个文件夹只放能编译、并且会进安装包的文件：源码、`package-lock.json`、打包用的 `settings.json`、`catalog.json`、软件会读的素材（含上面三个动画）、给 Windows 的更新说明。不要放 `node_modules`、Mac 的 `bin/lm-pet-dragwatch`、绿幕原片和旧图。到 Windows 上再 `npm install`，然后 `npm run dist:win`。Windows 上不要去跑 Swift。
+- 手机版是 Android 安装包，放在 `/Users/galaxym78/Desktop/Projects/LM-Pet-phone/LM-Pet.apk`。装好后人物浮在其他应用上面，通知栏里可以显示或隐藏。里面同样只放页面会读的素材。

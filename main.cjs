@@ -1,40 +1,230 @@
-const { app, BrowserWindow, Menu, ipcMain, screen, Tray, nativeImage, dialog, shell } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, screen, Tray, nativeImage, dialog, shell, protocol, net } = require("electron");
 const { spawn } = require("child_process");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { Readable } = require("stream");
+const { pathToFileURL } = require("url");
 
 app.setName("LM-Pet");
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "lm-file",
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+    },
+  },
+]);
+
+const DEFAULT_CATALOG_URL = "https://raw.githubusercontent.com/M78-galaxy/LM-Pet/main/catalog.json";
 
 function liveSettingsFile() {
   if (app.isPackaged) return path.join(app.getPath("userData"), "settings.json");
   return path.join(__dirname, "settings.json");
 }
 
-function loadSettings() {
-  const live = liveSettingsFile();
+function readRawSettings() {
   try {
-    return JSON.parse(fs.readFileSync(live, "utf8"));
+    return JSON.parse(fs.readFileSync(liveSettingsFile(), "utf8"));
   } catch {
-    if (!app.isPackaged) return {};
-    try {
-      const bundled = JSON.parse(fs.readFileSync(path.join(__dirname, "settings.json"), "utf8"));
-      delete bundled.x;
-      delete bundled.y;
-      bundled.showAll = false;
-      bundled.fed = { count: 0, bytes: 0 };
-      fs.mkdirSync(path.dirname(live), { recursive: true });
-      fs.writeFileSync(live, JSON.stringify(bundled, null, 2));
-      return bundled;
-    } catch {
-      return {};
-    }
+    return null;
   }
+}
+
+function loadSettings() {
+  const saved = readRawSettings();
+  if (saved) return saved;
+  if (!app.isPackaged) return {};
+  const next = blankPackagedSettings(activeCatalog());
+  try {
+    fs.mkdirSync(path.dirname(liveSettingsFile()), { recursive: true });
+    fs.writeFileSync(liveSettingsFile(), JSON.stringify(next, null, 2));
+  } catch {
+    /* 写不进去时这一轮仍用内存里的名单 */
+  }
+  return next;
 }
 
 function saveSettings(partial) {
   const next = { ...loadSettings(), ...partial };
   const live = liveSettingsFile();
+  fs.mkdirSync(path.dirname(live), { recursive: true });
+  fs.writeFileSync(live, JSON.stringify(next, null, 2));
+}
+
+let catalogCache = null;
+
+function readBundledCatalog() {
+  try {
+    const data = JSON.parse(fs.readFileSync(path.join(__dirname, "catalog.json"), "utf8"));
+    if (!data || !Array.isArray(data.characters)) return { revision: 0, lumu: {}, characters: [] };
+    return data;
+  } catch {
+    return { revision: 0, lumu: {}, characters: [] };
+  }
+}
+
+function activeCatalog() {
+  return catalogCache || readBundledCatalog();
+}
+
+function httpsUrl(value) {
+  return typeof value === "string" && /^https:\/\//.test(value) ? value : "";
+}
+
+function textOr(primary, fallback, last) {
+  if (typeof primary === "string" && primary.trim()) return primary.trim();
+  if (typeof fallback === "string" && fallback.trim()) return fallback.trim();
+  return last;
+}
+
+function castFilePath(id, fileName) {
+  const safeId = String(id || "");
+  const safeName = path.basename(String(fileName || ""));
+  if (!/^c\d+$/.test(safeId) || !safeName || safeName !== String(fileName || "")) return null;
+  return path.join(app.getPath("userData"), "casts", safeId, safeName);
+}
+
+function projectMedia(rel) {
+  const clean = String(rel || "").replace(/\\/g, "/");
+  if (!clean || clean.includes("..")) return "";
+  if (!clean.startsWith("assets/") && !clean.startsWith("custom/")) return "";
+  const abs = path.join(__dirname, clean);
+  return fs.existsSync(abs) ? clean : "";
+}
+
+function characterReady(extra) {
+  if (!extra) return false;
+  const local = castFilePath(extra.id, extra.file);
+  if (local && fs.existsSync(local)) return true;
+  if (projectMedia(extra.image)) return true;
+  return false;
+}
+
+function playableImage(extra) {
+  const local = castFilePath(extra.id, extra.file);
+  if (local && fs.existsSync(local)) {
+    return `lm-file://cast/${extra.id}/${encodeURIComponent(extra.file)}`;
+  }
+  return projectMedia(extra.image);
+}
+
+function stageExtra(extra) {
+  const ready = characterReady(extra);
+  return {
+    ...normalizeExtra(extra),
+    file: typeof extra.file === "string" ? path.basename(extra.file) : "",
+    url: typeof extra.url === "string" ? extra.url : "",
+    catalog: !!extra.catalog,
+    ready,
+    image: ready ? playableImage(extra) : "",
+  };
+}
+
+function mergePackagedSettings(saved, catalog) {
+  const lumuSrc = (catalog && catalog.lumu) || {};
+  const prevCasts = saved.casts || {};
+  const prevLumu = prevCasts.lumu || {};
+  const characters = Array.isArray(catalog && catalog.characters) ? catalog.characters : [];
+  const catalogIds = new Set();
+  const oldById = new Map(extrasFrom(saved).map((item) => [item.id, item]));
+  const extras = [];
+  for (const item of characters) {
+    if (!item || !/^c\d+$/.test(String(item.id || ""))) continue;
+    catalogIds.add(item.id);
+    const old = oldById.get(item.id) || {};
+    const file = path.basename(String(item.file || old.file || ""));
+    extras.push({
+      id: item.id,
+      name: textOr(item.name, old.name, "新角色"),
+      leftName: typeof item.leftName === "string" ? item.leftName : old.leftName || "",
+      rightName: typeof item.rightName === "string" ? item.rightName : old.rightName || "",
+      dialogue: typeof item.dialogue === "string" ? item.dialogue : old.dialogue || "",
+      actions: Array.isArray(item.actions) ? cleanActions(item.actions) : cleanActions(old.actions),
+      image: typeof item.image === "string" ? item.image : old.image || "",
+      file,
+      url: httpsUrl(item.url) || httpsUrl(old.url),
+      catalog: true,
+    });
+  }
+  for (const extra of extrasFrom(saved)) {
+    if (!catalogIds.has(extra.id) && extra && !extra.catalog) extras.push(extra);
+  }
+  const next = {
+    ...saved,
+    casts: {
+      ...prevCasts,
+      lumu: {
+        name: textOr(lumuSrc.name, prevLumu.name, "天魔练习室采访"),
+        leftName: textOr(lumuSrc.leftName, prevLumu.leftName, "老妈妈"),
+        rightName: textOr(lumuSrc.rightName, prevLumu.rightName, "老爸爸"),
+        dialogue: typeof lumuSrc.dialogue === "string" ? lumuSrc.dialogue : prevLumu.dialogue || "",
+        actions: Array.isArray(lumuSrc.actions) ? cleanActions(lumuSrc.actions) : cleanActions(prevLumu.actions),
+      },
+    },
+    extras,
+    catalogRevision: Number(catalog && catalog.revision) || 0,
+    appVersion: app.getVersion(),
+  };
+  const remoteUrl = httpsUrl(catalog && catalog.updateUrl);
+  if (remoteUrl) next.catalogUrl = remoteUrl;
+  const ids = new Set(["lumu", ...extras.map((item) => item.id)]);
+  if (typeof next.activeId !== "string" || !ids.has(next.activeId)) next.activeId = "lumu";
+  return next;
+}
+
+function blankPackagedSettings(catalog) {
+  const next = mergePackagedSettings(
+    {
+      activeId: "lumu",
+      showAll: false,
+      petSize: 140,
+      intervalMin: 8,
+      intervalMax: 20,
+      autoOn: true,
+      fed: { count: 0, bytes: 0 },
+    },
+    catalog
+  );
+  delete next.x;
+  delete next.y;
+  next.showAll = false;
+  next.fed = { count: 0, bytes: 0 };
+  next.activeId = "lumu";
+  return next;
+}
+
+async function reconcilePackaged() {
+  if (!app.isPackaged) return;
+  const live = liveSettingsFile();
+  let saved = null;
+  let existed = false;
+  if (fs.existsSync(live)) {
+    existed = true;
+    saved = readRawSettings();
+    if (!saved) return;
+  } else {
+    saved = {};
+  }
+  const bundled = readBundledCatalog();
+  let catalog = bundled;
+  const url = httpsUrl(saved.catalogUrl) || httpsUrl(bundled.updateUrl) || DEFAULT_CATALOG_URL;
+  try {
+    const res = await net.fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (res.ok) {
+      const remote = await res.json();
+      if (remote && Array.isArray(remote.characters)) catalog = remote;
+    }
+  } catch {
+    /* 网络上的名单拿不到时，用安装包里的这份 */
+  }
+  catalogCache = catalog;
+  const next = existed ? mergePackagedSettings(saved, catalog) : blankPackagedSettings(catalog);
   fs.mkdirSync(path.dirname(live), { recursive: true });
   fs.writeFileSync(live, JSON.stringify(next, null, 2));
 }
@@ -313,6 +503,9 @@ RunLoop.main.run()
 
 function attachDragProc(proc) {
   dragProc = proc;
+  proc.on("error", () => {
+    if (dragProc === proc) dragProc = null;
+  });
   let buf = "";
   proc.stdout.on("data", (chunk) => {
     buf += chunk.toString();
@@ -335,6 +528,7 @@ function attachDragProc(proc) {
 }
 
 function startDragWatch() {
+  if (process.platform !== "darwin") return;
   const bin = app.isPackaged
     ? path.join(process.resourcesPath, "bin", "lm-pet-dragwatch")
     : path.join(__dirname, "bin", "lm-pet-dragwatch");
@@ -350,6 +544,7 @@ function startDragWatch() {
     return;
   }
   const compile = spawn("swiftc", ["-o", out, src], { stdio: "ignore" });
+  compile.on("error", () => {});
   compile.on("exit", (code) => {
     if (code === 0 && fs.existsSync(out)) {
       attachDragProc(spawn(out, [], { stdio: ["ignore", "pipe", "ignore"] }));
@@ -473,7 +668,7 @@ function writeCast(id, patch) {
 }
 
 function stageFrom(saved) {
-  const extras = extrasFrom(saved).map(normalizeExtra);
+  const extras = extrasFrom(saved).map(stageExtra);
   let activeId = saved.activeId || "lumu";
   if (activeId !== "lumu" && !extras.some((item) => item.id === activeId)) {
     activeId = "lumu";
@@ -581,7 +776,39 @@ function openSettings() {
 ipcMain.handle("stage:get", () => stageFrom(loadSettings()));
 
 ipcMain.handle("stage:setActive", (_event, id) => {
-  saveSettings({ activeId: id || "lumu", showAll: false });
+  const nextId = id || "lumu";
+  if (nextId !== "lumu") {
+    const extra = extrasFrom(loadSettings()).find((item) => item.id === nextId);
+    if (!extra || !characterReady(extra)) return { ok: false, error: "先下载这个角色的动画" };
+  }
+  saveSettings({ activeId: nextId, showAll: false });
+  notifyStage();
+  return { ok: true };
+});
+
+ipcMain.handle("cast:download", async (_event, id) => {
+  const extra = extrasFrom(loadSettings()).find((item) => item.id === id);
+  if (!extra || !extra.catalog) return { ok: false, error: "这个角色不能下载" };
+  const url = String(extra.url || "");
+  if (!/^https:\/\//.test(url)) return { ok: false, error: "下载地址还没准备好" };
+  const dest = castFilePath(extra.id, extra.file);
+  if (!dest) return { ok: false, error: "文件名不对" };
+  const tmp = `${dest}.part`;
+  try {
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    const res = await net.fetch(url);
+    if (!res.ok) return { ok: false, error: "下载失败" };
+    const buf = Buffer.from(await res.arrayBuffer());
+    fs.writeFileSync(tmp, buf);
+    fs.renameSync(tmp, dest);
+  } catch {
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {
+      /* 半截文件留着也没用 */
+    }
+    return { ok: false, error: "下载失败" };
+  }
   notifyStage();
   return { ok: true };
 });
@@ -867,7 +1094,35 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(() => {
+function registerLocalCasts() {
+  protocol.handle("lm-file", (request) => {
+    let url;
+    try {
+      url = new URL(request.url);
+    } catch {
+      return new Response("bad", { status: 400 });
+    }
+    const parts = decodeURIComponent(url.pathname).split("/").filter(Boolean);
+    const file = castFilePath(parts[0], parts[1]);
+    if (!file || !fs.existsSync(file)) return new Response("missing", { status: 404 });
+    const type = file.endsWith(".webp")
+      ? "image/webp"
+      : file.endsWith(".png")
+        ? "image/png"
+        : file.endsWith(".gif")
+          ? "image/gif"
+          : file.endsWith(".mp4")
+            ? "video/mp4"
+            : "application/octet-stream";
+    return new Response(Readable.toWeb(fs.createReadStream(file)), {
+      headers: { "Content-Type": type },
+    });
+  });
+}
+
+app.whenReady().then(async () => {
+  registerLocalCasts();
+  await reconcilePackaged();
   startDragWatch();
   setInterval(tickHit, 16);
   createWindow();

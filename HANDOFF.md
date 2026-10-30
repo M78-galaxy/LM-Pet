@@ -1,156 +1,86 @@
-# 橹穆桌宠桌面版交接（LM-Pet）
+# LM-Pet 项目说明
 
-新对话请先读完这份文件。工作区必须是：
+进度记到 2026-10-27，版本 0.1.2。工作区是：
 
 **`/Users/galaxym78/Desktop/Projects/LM-Pet`**
 
-不要打开 `/Users/galaxym78/Obsidian-pet` 当这个项目的根目录。那边是已经冻结的 Obsidian 插件。
+软件名是 **LM-Pet**。不要改 `/Users/galaxym78/Obsidian-pet`，那边是已冻结的 Obsidian 插件，只作参考。
+
+远程仓库：https://github.com/M78-galaxy/LM-Pet.git  
+0.1.1 和 0.1.2 的说明在 `release-notes/`。安装包在本机 `release/`，不进仓库。牵手的待机动画大约 130MB，超过 GitHub 单文件限制，也留在本机。
 
 ---
 
-## 新对话怎么带（用户可整段粘贴）
+## 现在能做什么
 
-我在做「橹穆」独立桌面宠物。请先读工作区里的 `HANDOFF.md`。
+Mac 上的透明桌宠，无边框、始终置顶、不进程序坞，从菜单栏图标开关。
 
-项目路径：`/Users/galaxym78/Desktop/Projects/LM-Pet`。Obsidian 插件在 `/Users/galaxym78/Obsidian-pet`，只许当参考，不许改它的 `main.ts`。
-
-准备工作已经做完：文件夹、素材、`package.json`、Electron 已安装。请从 **第 1 关** 开始教我自己写 `main.cjs` 和 `index.html`。不要一上来生成完整成品。我没明确说「你来写」时，只给文件内容和命令，等我跑通再进下一关。
-
----
-
-## 给后续助手的规矩
-
-- 用户要学习怎么做一个能跑通的 App。默认 **只教、给可复制内容**，等他跑通再往下。
-- 除非用户明确说「你来写 / 开 Agent 直接改」，否则不要一次贴完整工程、不要替他写完整桌宠逻辑。
-- 一次只做一关。没看到窗口之前，不要搬插件对话/精灵系统，不要打 dmg，不要上 Tauri。
-- 用中文。终端命令里不要夹杂交互式 zsh 会当命令执行的 `#` 注释行。
-- npm 若失败，加 `--registry=https://registry.npmmirror.com`。
-- 不要 `git push --force`。不要改 git config。用户没要求就不要 commit。
-- **禁止修改** `/Users/galaxym78/Obsidian-pet/main.ts` 以及该插件其它源码。
+- 角色可切换。四组：天魔练习室采访、2025不心动挑战（`assets/An_pet/idle-2025sport.webp`）、牵手（`assets/An_pet/idle-handhold.webp`）、真爱降临（`assets/An_pet/idle-zhenai.webp`）。
+- 每组有自己的左右称呼、对话和动作。气泡是 logo 的青到粉渐变，里面只显示台词。
+- 右键可以选一段对话或动作。一段对话会按顺序说完，大约每 2 秒一句。自动说话也是整段说完。
+- 点人物说一句，点气泡立刻接下一句，悬停会轻轻晃，双击播该场景的第一个动作。
+- 按住人物可拖。拖到屏幕边缘时，对准的是人物而不是透明窗口。指针不在人物上时，点击会穿过窗口。
+- 没有靠屏幕边缘自动转身。
+- 「牵手逛逛」用 `assets/pair-stroll.mp4`。窗口滑动对齐视频时间，可调 `index.html` 里的 `STROLL_WALK_AT`（4650）和 `STROLL_WALK_MS`（6700），单位毫秒。
+- 把文件拖到人物身上会送进废纸篓（可恢复），并记「喂食 N 份」。不吃本项目里的文件。喂的时候会蹲一下、碎屑飞进嘴里。解锁新角色还没做，现有角色都不锁。
+- 开发时（`npm start`）设置里可以上传图片、改名字、改对话、加动作。打进安装包之后，别人只能换角色和调大小，不能改这些内容。
 
 ---
 
-## 两个仓库，别搞混
-
-| | Obsidian 插件（已完成） | 本项目（桌面版，进行中） |
-|---|---|---|
-| 路径 | `/Users/galaxym78/Obsidian-pet` | `/Users/galaxym78/Desktop/Projects/LM-Pet` |
-| GitHub | https://github.com/M78-galaxy/LUMU-Pet-for-Desktop.git | 尚未单独绑定（需要时再建） |
-| 分支 | `main` = v1；`v2-dev` = v2.0.0 | 尚未 git init（用户要求再做） |
-| 运行 | 在 Obsidian 里加载插件 | `cd` 本目录后 `npm start` |
-
-插件 Tag：`v1.0.0`、`v2.0.0`。桌面版是新产品，版本从 `0.1.0` 起。
-
-环境（2026-10-08）：macOS Apple Silicon，Node v24，**没有** Rust / Tauri。桌面版用 **Electron**。
-
----
-
-## 准备工作（已完成，不要再做一遍）
-
-- [x] 目录 `/Users/galaxym78/Desktop/Projects/LM-Pet`
-- [x] `package.json`（`"main": "main.cjs"`，`"start": "electron ."`）
-- [x] `npm install --save-dev electron`（国内源）
-- [x] `assets/` 已从 Obsidian 库拷入（见下方清单）
-- [x] `.gitignore`（忽略 `node_modules/`、本地设置、`.DS_Store`）
-- [ ] **还没有** `main.cjs`、`index.html` ← 第 1 关由用户自己写
-- [ ] 还没有透明窗、拖动、对话、视频、dmg
-
-素材已在 `assets/`：
-
-- 坐：`A-sit.png` `B-sit.png` `A-sit-talk.png` `B-sit-talk.png` `A-sit-open.png` `B-sit-open.png`
-- 站/走：`A-idle.png` `B-idle.png` `A-walk.png` `B-walk.png` `A-standup.png` `B-standup.png` `A-sitdown.png` `B-sitdown.png`
-- 双人：`pair-hold.png` `pair-walk.png` `pair-sit.png` `pair-standup.png` `pair-sitdown.png` `pair-meet.png`
-- 视频：`pair-stroll.mp4`（白底，插件里运行时抠透明）
-- 参考旧图：`pet-cap.png` `pet-silver.png`
-
-角色：**老妈妈 A**（黑帽 LM、菱格夹克），**老爸爸 B**（银发、灰拉链、迷彩）。
-
----
-
-## 插件里有、桌面版以后要有的能力（先别实现）
-
-参考代码：`/Users/galaxym78/Obsidian-pet/main.ts`、`styles.css`。
-
-已有功能：坐下待机、坐着张嘴对话、站着对话（无站立张嘴图则只出气泡）、右键动作、自动互动、牵手视频 `pair-stroll.mp4`（走路段平移）。
-
-桌面版 **没有** `obsidian` API（`Plugin` `TFile` `vault` `Setting` `Notice` `Menu`）。图片用 `assets/A-sit.png`。设置用本地 JSON。窗口必须自己用 Electron 开。
-
-第一期产品：Mac 始终置顶、背景透明；两人坐在桌面上；可拖。对话、牵手视频、安装包往后排。
-
----
-
-## 教学路线（从第 1 关开始）
-
-第 0 关（装 Electron）已完成。在本目录运行 `npm start` 前必须先有 `main.cjs` 和 `index.html`。
-
-### 第 1 关：普通窗口 + 一行字
-
-用户自己新建 `main.cjs`：
-
-```js
-const { app, BrowserWindow } = require("electron");
-
-function createWindow() {
-  const win = new BrowserWindow({
-    width: 480,
-    height: 360,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-    },
-  });
-  win.loadFile("index.html");
-}
-
-app.whenReady().then(createWindow);
-app.on("window-all-closed", () => app.quit());
-```
-
-自己新建 `index.html`：标题「橹穆桌宠」，正文「如果你能看到这行字，第一关就过了。」
+## 怎么在这台电脑上跑
 
 ```bash
 cd /Users/galaxym78/Desktop/Projects/LM-Pet
 npm start
 ```
 
-成功：弹出标准 Mac 窗口。关掉窗口或终端 `Ctrl+C`。
+改了 `main.cjs`、`preload.cjs` 或菜单栏图标后，要先从菜单栏图标里选退出，再 `npm start`。只在终端里停掉，旧进程还在。
 
-### 第 2 关：透明、无边框、置顶
-
-`BrowserWindow` 加上：`transparent: true`、`frame: false`、`alwaysOnTop: true`、`hasShadow: false`、`skipTaskbar: true`。CSS：`html, body { background: transparent; }`。
-
-成功：字浮在桌面上，没有系统标题栏。
-
-### 第 3 关：坐下的两人 + 拖动
-
-素材已在 `assets/`，**不要再从库拷**。`index.html` 里放 `assets/A-sit.png` 和 `assets/B-sit.png`，高度约 140px，外层 div 写 `-webkit-app-region: drag`。
-
-成功：桌面上坐着两个人，按住能拖，背景透明。这是最小能跑通的桌宠。
-
-### 第 3 关之后（每次只加一件）
-
-1. 右键菜单
-2. 从插件移植精灵/对话：去掉所有 `obsidian` import
-3. 设置写入本地文件
-4. `electron-builder` 打 dmg
+`settings.json` 和 `custom/` 不进 git，角色和对话在这里。`npm start` 直接读写项目里的 `settings.json`。
 
 ---
 
-## Electron 两段程序
+## 打包和给别人更新
 
-| | 文件 | 职责 |
-|---|---|---|
-| 主进程 | `main.cjs` | 开窗口、置顶、以后打包 |
-| 渲染进程 | `index.html` + JS | 画小人、对话、动画 |
+Mac 安装包按芯片分成两份：
 
-`package.json` 的 `"main"` 已指向 `main.cjs`。
+```bash
+npm run dist
+```
+
+发给别人的是 `release/v版本号/LM-Pet-版本号-arm64.dmg`（Apple 芯片）和 `LM-Pet-版本号-x64.dmg`（Intel）。打开后把 LM-Pet 拖进「应用程序」。没有苹果开发者签名。`.blockmap` 不用发。Intel 那一份不能从访达拖文件喂食。
+
+Windows 安装包必须在 Windows 上打，命令是 `npm run dist:win`，得到 `release` 里的 Setup exe。拷过去时带上 `assets`、`custom`、`settings.json`、`bin`、源码和 `package.json` / `package-lock.json`。可以不带 `animation`、`release`、`.git`、`node_modules`、`Obsidian_example`。`node_modules` 到 Windows 上重新 `npm install`。
+
+从 0.1.2 起，覆盖安装会把内置角色并进原来的设置，喂食次数、窗口位置、人物大小和说话间隔留着。不用再删：
+
+`~/Library/Application Support/LM-Pet/settings.json`
 
 ---
 
-## 常见翻车
+## 素材别搞混
 
-- `electron: command not found`：不在本目录，或 `node_modules` 丢失（再跑 `npm install --save-dev electron --registry=https://registry.npmmirror.com`）
-- 在 `/Users/galaxym78/Obsidian-pet` 里 `npm start` 会跑插件的 esbuild，**不是**这个桌面 App
-- 黑/白方块：忘了 `transparent: true` 或 body 不是透明
-- 图片裂开：路径必须是相对本项目的 `assets/A-sit.png`
-- 拖不动：`drag` 要写在包着图的容器上
+| 用途 | 路径 |
+|---|---|
+| 软件图标 | `assets/logo.png` |
+| 内置双人缩略图 | `assets/lumu-thumb.png` |
+| 2025不心动挑战 | `assets/An_pet/idle-2025sport.webp` |
+| 牵手待机 | `assets/An_pet/idle-handhold.webp` |
+| 真爱降临 | `assets/An_pet/idle-zhenai.webp` |
+| 牵手逛逛视频 | `assets/pair-stroll.mp4` |
+
+`hand_hold.png` 以前叫 `牵手.png`，为了拷到 Windows 不乱码才改名。桌宠运行不读这个原画。`animation/` 是动画工程，运行和打包都不用。
+
+菜单栏图标大小看 `main.cjs` 里的 `TRAY_CROP`，不要靠改 PNG 的宽高。
+
+---
+
+## 主要文件
+
+| 文件 | 做什么 |
+|---|---|
+| `main.cjs` | 窗口、托盘、设置读写、废纸篓、打包后禁止改角色 |
+| `preload.cjs` | 页面和主进程之间的接口 |
+| `index.html` | 人物、对话、拖动、穿透、喂食动画 |
+| `settings.html` | 设置页。安装包里会藏起上传和改对话 |
+| `bin/lm-pet-dragwatch` | 只有 Mac 用，帮着接住访达拖放。Windows 上不会跑 |

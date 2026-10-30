@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld("pet", {
   addExtra: (name) => ipcRenderer.invoke("extras:add", { name }),
   removeExtra: (id) => ipcRenderer.invoke("extras:remove", id),
   setActive: (id) => ipcRenderer.invoke("stage:setActive", id),
+  downloadCast: (id) => ipcRenderer.invoke("cast:download", id),
   setShowAll: (on) => ipcRenderer.invoke("stage:setShowAll", on),
   setPetSize: (size) => ipcRenderer.invoke("stage:setPetSize", size),
   setDialogue: (payload) => ipcRenderer.invoke("cast:setDialogue", payload),

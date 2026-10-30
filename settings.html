@@ -392,7 +392,7 @@
         if (intro) {
           intro.textContent = editable
             ? "日常只上台一组。要并排对比，勾选下面的测试开关。"
-            : "点「上台」换一组。角色、图片和对话不能在这里改。";
+            : "点「上台」换一组。还没动画的角色先点「下载」。角色、图片和对话不能在这里改。";
         }
         lastStage = stage;
         const extras = (stage && stage.extras) || [];
@@ -406,7 +406,7 @@
         const fedLine = document.getElementById("fedLine");
         if (fedLine) fedLine.textContent = `喂食 ${fed.count} 份。把文件拖到桌宠身上，就会进废纸篓。`;
         fillEditor(stage);
-        const sig = `${activeId}|${showAll}|${lumuName(stage)}|${extras.map((e) => `${e.id}:${e.name}:${e.leftName}:${e.rightName}`).join(",")}`;
+        const sig = `${activeId}|${showAll}|${lumuName(stage)}|${extras.map((e) => `${e.id}:${e.name}:${e.leftName}:${e.rightName}:${e.ready ? 1 : 0}`).join(",")}`;
         if (listEl.dataset.sig === sig) return;
         listEl.dataset.sig = sig;
         listEl.innerHTML = "";
@@ -427,7 +427,7 @@
           const li = document.createElement("li");
           if (!showAll && item.id === activeId) li.classList.add("on");
           const img = document.createElement("img");
-          img.src = item.image;
+          img.src = item.ready === false || !item.image ? "assets/logo.png" : item.image;
           img.alt = item.name;
           if (item.pair || !item.builtin) img.classList.add("pair");
           const name = document.createElement("div");
@@ -439,8 +439,29 @@
             tag.textContent = item.tag;
             name.appendChild(tag);
           }
+          if (!item.builtin && item.ready === false) {
+            const tag = document.createElement("div");
+            tag.className = "tag";
+            tag.textContent = "还没下载";
+            name.appendChild(tag);
+          }
           li.append(img, name);
-          if (showAll || item.id !== activeId) {
+          if (!item.builtin && item.ready === false) {
+            const dl = document.createElement("button");
+            dl.className = "on-stage";
+            dl.type = "button";
+            dl.textContent = "下载";
+            dl.addEventListener("click", async () => {
+              dl.disabled = true;
+              dl.textContent = "下载中";
+              const res = await window.pet.downloadCast(item.id);
+              if (!res || !res.ok) {
+                dl.disabled = false;
+                dl.textContent = (res && res.error) || "下载失败";
+              }
+            });
+            li.append(dl);
+          } else if (showAll || item.id !== activeId) {
             const go = document.createElement("button");
             go.className = "on-stage";
             go.type = "button";
